@@ -16,7 +16,7 @@ gurobi = optimizer_with_attributes(Gurobi.Optimizer)
 ##### Step 1: Import the grid data and initialize the JuMP model
 # Select the MATPOWER case file
 path = pwd()
-case_file = joinpath(path,"test_system_NORDIC_GB_HVDC.m")
+case_file = joinpath(path,"test_system_formato_NORDIC.m")
 
 
 # For convenience, use the parser of Powermodels to convert the MATPOWER format file to a Julia dictionary
@@ -67,9 +67,6 @@ build_ac_opf_acdc_frequency_sev_var_res_provi!(m)
 set_optimizer_attribute(m, "MIPGap", 0.0001)
 optimize!(m)
 # ... bloque 1 ...
-t1 = time()
-
-println("Bloque 1: ", t1 - t0, " s")
 
 # @show termination_status(m)
 

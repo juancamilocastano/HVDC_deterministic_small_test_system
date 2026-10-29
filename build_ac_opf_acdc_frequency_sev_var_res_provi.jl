@@ -285,10 +285,10 @@ function build_ac_opf_acdc_frequency_sev_var_res_provi!(m::Model)
     u_conv_p_ac = m.ext[:variables][:u_conv_p_ac] = @variable(m, [cv=CV,t=T], binary=true, base_name="u_conv_p_ac") # binary variable for converter active power
     conv_p_dc = m.ext[:variables][:conv_p_dc] = @variable(m, [cv=CV,t=T], lower_bound=-conv_p_dc_max[cv], upper_bound=conv_p_dc_max[cv], base_name="conv_p_dc") # converter active power
     δhvdc= m.ext[:variables][:δhvdc] = @variable(m, [cv=CV,t=T], binary=true, base_name="δhvdc") #binary variable event converter
-    rhvdc_lg1 = m.ext[:variables][:rhvdc_lg1] = @variable(m, [cv=CV1,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv]*0, base_name="rhvdc_lg1") #frequency reserve HHDC loss of generation area 1
-    rhvdc_lc1 = m.ext[:variables][:rhvdc_lc1] = @variable(m, [cv=CV1,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv]*0, base_name="rhvdc_lc1") #frequency reserve HVDC loss of converter area 1
-    rhvdc_lg2 = m.ext[:variables][:rhvdc_lg2] = @variable(m, [cv=CV2,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv]*0, base_name="rhvdc_lg2") #frequency reserve HVDC loss of generation area 2
-    rhvdc_lc2 = m.ext[:variables][:rhvdc_lc2] = @variable(m, [cv=CV2,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv]*0, base_name="rhvdc_lc2") #frequency reserve HVDC loss of converter area 2
+    rhvdc_lg1 = m.ext[:variables][:rhvdc_lg1] = @variable(m, [cv=CV1,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg1") #frequency reserve HHDC loss of generation area 1
+    rhvdc_lc1 = m.ext[:variables][:rhvdc_lc1] = @variable(m, [cv=CV1,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc1") #frequency reserve HVDC loss of converter area 1
+    rhvdc_lg2 = m.ext[:variables][:rhvdc_lg2] = @variable(m, [cv=CV2,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg2") #frequency reserve HVDC loss of generation area 2
+    rhvdc_lc2 = m.ext[:variables][:rhvdc_lc2] = @variable(m, [cv=CV2,t=T], lower_bound=0,  upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc2") #frequency reserve HVDC loss of converter area 2
 
 
    #Reservoir storage variables

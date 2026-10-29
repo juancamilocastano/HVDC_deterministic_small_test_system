@@ -1,26 +1,26 @@
 ===== AREA 1 COSTS =====
-generation                          = 7.322786695579792e6
+generation                          = 5760.0
 startup_electrolyzers              = 0.0
 startup_generators                 = 0.0
-hydrogen                           = -297931.03448275884
-total_area_1                       = 8.453905375492353e6
-reserve_generators                 = 105915.0441878882
-reserve_electrolyzers              = 777621.6000000003
-reserve_storage                    = 545513.0702074313
+hydrogen                           = -16386.206896551714
+total_area_1                       = -2307.6775862068844
+reserve_generators                 = 288.7199999999999
+reserve_electrolyzers              = 4717.465032140983
+reserve_storage                    = 3312.344278203847
 reserve_hvdc                       = 0.0
 load_shedding                      = 0.0
 
 ===== AREA 2 COSTS =====
-generation                          = 4.2637261503203645e7
+generation                          = 1091.096048284976
 startup_electrolyzers              = 0.0
-startup_generators                 = 449606.0
-hydrogen                           = -989117.508413794
-total_area_2                       = 4.428594586933242e7
-reserve_generators                 = 107989.73958666786
-reserve_electrolyzers              = 1.7442036700681497e6
-reserve_storage                    = 336002.46488774783
-reserve_hvdc                       = 0.0
+startup_generators                 = 0.0
+hydrogen                           = -13406.896551724141
+total_area_2                       = -12310.456767496746
+reserve_generators                 = 0.0
+reserve_electrolyzers              = 0.0
+reserve_storage                    = 0.0
+reserve_hvdc                       = 5.343735942417967
 load_shedding                      = 0.0
 
 ===== TOTAL =====
-total_reconstructed                = 5.273985124482477e7
+total_reconstructed                = -14618.13435370363
