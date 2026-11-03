@@ -1,8 +1,10 @@
 # Create a function to define sets and pass it to the function
 function define_sets!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame, tss::DataFrame)
- 
+
     # Create a dictionary for the sets
     m.ext[:sets] = Dict()
+    Wind_scenarios = m.ext[:sets][:Wind_scenarios] = ["High_wind","Low_wind"]
+    Solar_scenarios = m.ext[:sets][:Solar_scenarios] = ["High_solar","Low_solar"]
     #Set time steps
     T=m.ext[:sets][:t] = [string(i) for i in 1:nrow(ts)]
     # Sets of elements
@@ -251,9 +253,10 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
 
     # Wind input
     #total_wind=Dict(col => Dict(string(i) => tsw[i, col]/baseMVA for i in 1:nw) for col in colsw)
-
+    capacity_factor_solar=Dict(col => Dict(string(i) => Dict("high" => tss[i, col] * 1.1,"low"  => tss[i, col] * 0.9) for i in 1:nw) for col in names(tss))
     capacity_factor_solar=Dict(col => Dict(string(i) => tss[i, col] for i in 1:nw) for col in names(tss))
     capacity_factor_wind=Dict(col => Dict(string(i) => tsw[i, col] for i in 1:nw) for col in colsw)
+    capacity_factor_wind=Dict(col => Dict(string(i) => Dict("high" => tsw[i, col] * 1.1,"low"  => tsw[i, col] * 0.9) for i in 1:nw) for col in colsw)
     wind_per_node = Dict(string(i) => Dict(string(j) => 0.0 for j in T) for i in 1:maxN)
     
  

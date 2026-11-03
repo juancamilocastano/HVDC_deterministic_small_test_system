@@ -50,14 +50,15 @@ process_parameters!(m, data,ts,tsw,tss) # Pass the parameters to the JuMP model
 ##### Step 3: Build the model
 include(joinpath(path,"printparameters_frequency_sev_var_res_provi.jl")) # Define build_ac_opf_acdc! function
 include(joinpath(path,"build_ac_opf_acdc_frequency_sev_var_res_provi.jl")) # Define build_ac_opf_acdc! function
-
+include(joinpath(path,"build_ac_opf_acdc_frequency_robust.jl")) # Define build_ac_opf_acdc! function
 
 #build_ac_opf_acdc_modify!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency_silent_3!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency_silent_4!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency_several_res_var_without_loss_res!(m)
-build_ac_opf_acdc_frequency_sev_var_res_provi!(m)
+#build_ac_opf_acdc_frequency_sev_var_res_provi!(m)
+build_ac_opf_acdc_frequency_robust!(m)
 
 ##### Step 4: Solve the model
 
