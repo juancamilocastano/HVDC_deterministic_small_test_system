@@ -5,6 +5,7 @@ function define_sets!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame, tss::
     m.ext[:sets] = Dict()
     Wind_scenarios = m.ext[:sets][:Wind_scenarios] = ["High_wind","Low_wind"]
     Solar_scenarios = m.ext[:sets][:Solar_scenarios] = ["High_solar","Low_solar"]
+    Stages_scenarios = m.ext[:sets][:Stages_scenarios] = ["Stage1","Stage2"]
     #Set time steps
     T=m.ext[:sets][:t] = [string(i) for i in 1:nrow(ts)]
     # Sets of elements
@@ -157,6 +158,10 @@ function define_sets!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame, tss::
     all_contingencies = m.ext[:sets][:all_contingencies] = merge(G_contingencies, CV_contingencies)
     return 
 
+    scenarios = m.ext[:sets][:Scenarios] = vcat(
+    [(:gen,  g, w) for g in G  for w in Wind_scenarios],
+    [(:conv, c, w) for c in CV for w in Wind_scenarios],)
+
 
 
 end
@@ -251,12 +256,23 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
     nw = nrow(tsw)
     colsw = names(tsw)
 
-    # Wind input
-    #total_wind=Dict(col => Dict(string(i) => tsw[i, col]/baseMVA for i in 1:nw) for col in colsw)
-    capacity_factor_solar=Dict(col => Dict(string(i) => Dict("high" => tss[i, col] * 1.1,"low"  => tss[i, col] * 0.9) for i in 1:nw) for col in names(tss))
-    capacity_factor_solar=Dict(col => Dict(string(i) => tss[i, col] for i in 1:nw) for col in names(tss))
-    capacity_factor_wind=Dict(col => Dict(string(i) => tsw[i, col] for i in 1:nw) for col in colsw)
-    capacity_factor_wind=Dict(col => Dict(string(i) => Dict("high" => tsw[i, col] * 1.1,"low"  => tsw[i, col] * 0.9) for i in 1:nw) for col in colsw)
+    # Relative deviation of the wind realizations with respect to the forecast (10 %)
+    δ_wind = 0.1
+
+    # Solar capacity factor: deterministic, used in both the first and the second stage
+    capacity_factor_solar = Dict(col => Dict(string(i) => tss[i, col] for i in 1:nw) for col in names(tss))
+
+    # Wind capacity factor forecast: used in the first stage (day-ahead schedule)
+    capacity_factor_wind = Dict(col => Dict(string(i) => tsw[i, col] for i in 1:nw) for col in colsw)
+
+    # Wind capacity factor realizations: used in the second stage (one value per scenario)
+    capacity_factor_wind_w = Dict(col => Dict(string(i) => Dict(
+            "high" => min(1.0, tsw[i, col] * (1 + δ_wind)),   # high realization, capped at 1 (rated power)
+            "low"  => tsw[i, col] * (1 - δ_wind))             # low realization
+        for i in 1:nw) for col in colsw)
+
+
+
     wind_per_node = Dict(string(i) => Dict(string(j) => 0.0 for j in T) for i in 1:maxN)
     
  
@@ -272,6 +288,7 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
     #m.ext[:parameters][:total_wind]=total_wind
     m.ext[:parameters][:capacity_factor_solar]=capacity_factor_solar
     m.ext[:parameters][:capacity_factor_wind]=capacity_factor_wind
+    m.ext[:parameters][:capacity_factor_wind_w]=capacity_factor_wind_w
 
 
 
@@ -375,6 +392,8 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
     max_gen_ncost = m.ext[:parameters][:gen_max_ncost] = maximum([data["gen"][g]["ncost"] for g in G])
     m.ext[:parameters][:gen_ncost] = Dict(g => data["gen"][g]["ncost"] for g in G)
     m.ext[:parameters][:gen_cost] = Dict(g => data["gen"][g]["cost"] for g in G)
+    cg_up=m.ext[:parameters][:cg_up] = Dict(g => 1.1*data["gen"][g]["cost"] for g in G)
+    cg_dn=m.ext[:parameters][:cg_dn] = Dict(g => 0.9*data["gen"][g]["cost"] for g in G)
     start_up_cost=m.ext[:parameters][:startup_cost] = Dict(g => data["gen"][g]["startup"] for g in G)
 
     # Uniform the length of the cost vector for all generators
