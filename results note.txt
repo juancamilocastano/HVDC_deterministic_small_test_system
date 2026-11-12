@@ -1,0 +1,4 @@
+Por que el hidrogeno se compra más en el escenario de alta realizaciónd el viento? La diferencia parece demasaido pequena, posiblemente son el mismo valor
+
+
+En las horas 1 a 5, con viento alto, la reserva desplegada frente a la pérdida del generador eólico es mayor que la potencia perdida. Ocurre porque en ese escenario hay más reserva disponible de la necesaria para esa contingencia (los tres generadores a gas siguen conectados y el HVDC tiene más margen), y la reserva desplegada no tiene costo: solo se paga la reserva procurada, que está dimensionada por otra contingencia más exigente. Como el balance solo exige que la reserva cubra la pérdida (≥) y las restricciones de frecuencia no están activas, el optimizador puede asignar cualquier valor entre la pérdida y la reserva disponible sin cambiar el costo. Una reserva mayor implica una variación de frecuencia menor, pero eso es una consecuencia de la asignación, no un objetivo del modelo. 

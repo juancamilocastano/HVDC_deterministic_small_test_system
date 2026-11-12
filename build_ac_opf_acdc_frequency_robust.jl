@@ -260,6 +260,11 @@ function build_ac_opf_acdc_frequency_robust!(m::Model)
     fallos1 = m.ext[:sets][:fallos1] = vcat([(:gen, g) for g in G1], [(:conv, cv) for cv in CV1])
     fallos2 = m.ext[:sets][:fallos2] = vcat([(:gen, g) for g in G2], [(:conv, cv) for cv in CV2])
 
+fallos_g1 = m.ext[:sets][:fallos_g1] = G1
+fallos_c1 = m.ext[:sets][:fallos_c1] = CV1
+fallos_g2 = m.ext[:sets][:fallos_g2] = G2
+fallos_c2 = m.ext[:sets][:fallos_c2] = CV2
+
     
         K = vcat([(:gen,g)  for g  in G],
          [(:conv, cv) for cv in CV])
@@ -273,223 +278,306 @@ function build_ac_opf_acdc_frequency_robust!(m::Model)
   
 
 
-    pg_fs = m.ext[:variables][:pg_fs] = @variable(m, [g=G, t=T], lower_bound=0, upper_bound=pmax[g], base_name="pg_fs") # active power generation
-    pg_ss = m.ext[:variables][:pg_ss] = @variable(m, [g=G, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=pmax[g], base_name="pg_ss") # active power generation
-    pg_ss_up = m.ext[:variables][:pg_ss_up] = @variable(m, [g=G, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g], base_name="pg_ss_up") # upward adjustment of generation w.r.t. the first-stage schedule
-    pg_ss_dn = m.ext[:variables][:pg_ss_dn] = @variable(m, [g=G, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=downramp[g], base_name="pg_ss_dn") # downward adjustment of generation w.r.t. the first-stage schedule
+    pg_fs    = m.ext[:variables][:pg_fs]    = @variable(m, [g=G, t=T],                   lower_bound=0, upper_bound=pmax[g],     base_name="pg_fs")    # day-ahead generation schedule (first stage)
+    pg_ss    = m.ext[:variables][:pg_ss]    = @variable(m, [g=G, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=pmax[g],     base_name="pg_ss")    # actual generation in each wind realization (second stage)
+    pg_ss_up = m.ext[:variables][:pg_ss_up] = @variable(m, [g=G, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g],   base_name="pg_ss_up") # upward adjustment of generation w.r.t. the first-stage schedule
+    pg_ss_dn = m.ext[:variables][:pg_ss_dn] = @variable(m, [g=G, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=downramp[g], base_name="pg_ss_dn") # downward adjustment of generation w.r.t. the first-stage schedule
 
-    # Generator variables
-    rg_lg1_ss = m.ext[:variables][:rg_lg1_ss] = @variable(m, [g=G1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lg1_ss") # frequency reserve generators loss of generation area 1 second stage
 
-    rg_lc1_ss = m.ext[:variables][:rg_lc1_ss] = @variable(m, [g=G1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lc1_ss") # frequency reserve generators loss of converter area 1 second stage
+        # Reserve of generators for the loss of a generator / converter in their own area
+    rg_lg1_ss = m.ext[:variables][:rg_lg1_ss] = @variable(m, [g=G1, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lg1_ss") # frequency reserve of generators in area 1 for the loss of generator k in area 1
+    rg_lc1_ss = m.ext[:variables][:rg_lc1_ss] = @variable(m, [g=G1, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lc1_ss") # frequency reserve of generators in area 1 for the loss of converter k in area 1
+    rg_lg2_ss = m.ext[:variables][:rg_lg2_ss] = @variable(m, [g=G2, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lg2_ss") # frequency reserve of generators in area 2 for the loss of generator k in area 2
+    rg_lc2_ss = m.ext[:variables][:rg_lc2_ss] = @variable(m, [g=G2, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lc2_ss") # frequency reserve of generators in area 2 for the loss of converter k in area 2
 
-    rg_lg2_ss = m.ext[:variables][:rg_lg2_ss] = @variable(m, [g=G2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lg2_ss") # frequency reserve generators loss of generation area 2 second stage
+    # Reserve of generators to cover the imbalance created when the HVDC link delivers reserve to the other area
+    rg_l_reserve_1_g_ss = m.ext[:variables][:rg_l_reserve_1_g_ss] = @variable(m, [g=G1, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_1_g_ss") # area 1 reserve when HVDC supports area 2 after the loss of generator k in area 2
+    rg_l_reserve_1_c_ss = m.ext[:variables][:rg_l_reserve_1_c_ss] = @variable(m, [g=G1, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_1_c_ss") # area 1 reserve when HVDC supports area 2 after the loss of converter k in area 2
+    rg_l_reserve_2_g_ss = m.ext[:variables][:rg_l_reserve_2_g_ss] = @variable(m, [g=G2, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_2_g_ss") # area 2 reserve when HVDC supports area 1 after the loss of generator k in area 1
+    rg_l_reserve_2_c_ss = m.ext[:variables][:rg_l_reserve_2_c_ss] = @variable(m, [g=G2, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_2_c_ss") # area 2 reserve when HVDC supports area 1 after the loss of converter k in area 1
 
-    rg_lc2_ss = m.ext[:variables][:rg_lc2_ss] = @variable(m, [g=G2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_lc2_ss") # frequency reserve generators loss of converter area 2 second stage
 
-    rg_l_reserve_1_ss = m.ext[:variables][:rg_l_reserve_1_ss] = @variable(m, [g=G1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_1_ss") # frequency reserve generators for FCR provision area 1 second stage
-
-    rg_l_reserve_2_ss = m.ext[:variables][:rg_l_reserve_2_ss] = @variable(m, [g=G2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="rg_l_reserve_2_ss") # frequency reserve generators for FCR provision area 2 second stage
-
-    r_proc_g_1 = m.ext[:variables][:r_proc_g_1] = @variable(m, [g=G1, t=T], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="r_proc_g_1") # procured reserve generators area 1
-    r_proc_g_2 = m.ext[:variables][:r_proc_g_2] = @variable(m, [g=G2, t=T], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="r_proc_g_2") # procured reserve generators area 2
-
-    # Status variables generators
-    zg_fs = m.ext[:variables][:zg_fs] = @variable(m, [g=G, t=T], binary=true, base_name="zg_fs") # status variable generator
-    betag_fs = m.ext[:variables][:betag_fs] = @variable(m, [g=G, t=T], binary=true, base_name="betag_fs") # start-up variable generator
-    gammag_fs = m.ext[:variables][:gammag_fs] = @variable(m, [g=G, t=T], binary=true, base_name="gammag_fs") # shut-down variable generator
-
+    r_proc_g_1 = m.ext[:variables][:r_proc_g_1] = @variable(m, [g=G1, t=T], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="r_proc_g_1") # procured reserve of generators in area 1 (first stage)
+    r_proc_g_2 = m.ext[:variables][:r_proc_g_2] = @variable(m, [g=G2, t=T], lower_bound=0, upper_bound=upramp[g]*G_dt[g]/3600, base_name="r_proc_g_2") # procured reserve of generators in area 2 (first stage)
+    
+    
+    # Status variables generators (first stage)
+    zg_fs     = m.ext[:variables][:zg_fs]     = @variable(m, [g=G, t=T], binary=true, base_name="zg_fs")     # on/off status of generator g (first stage)
+    betag_fs  = m.ext[:variables][:betag_fs]  = @variable(m, [g=G, t=T], binary=true, base_name="betag_fs")  # start-up of generator g (first stage)
+    gammag_fs = m.ext[:variables][:gammag_fs] = @variable(m, [g=G, t=T], binary=true, base_name="gammag_fs") # shut-down of generator g (first stage)
+    
     # DC components
     # Branches
-    brdc_p_fs = m.ext[:variables][:brdc_p_fs] = @variable(m, [(d,e,f)=BD_dc, t=T], lower_bound=-brdc_rate_a[d], upper_bound=brdc_rate_a[d], base_name="brdc_p_fs")
-    brdc_p_ss = m.ext[:variables][:brdc_p_ss] = @variable(m, [(d,e,f)=BD_dc, t=T, k=fallos, w=Wind_scenarios], lower_bound=-brdc_rate_a[d], upper_bound=brdc_rate_a[d], base_name="brdc_p_ss")
-
+    brdc_p_fs = m.ext[:variables][:brdc_p_fs] = @variable(m, [(d,e,f)=BD_dc, t=T],                   lower_bound=-brdc_rate_a[d], upper_bound=brdc_rate_a[d], base_name="brdc_p_fs") # DC line flow in the day-ahead schedule (first stage)
+    brdc_p_ss = m.ext[:variables][:brdc_p_ss] = @variable(m, [(d,e,f)=BD_dc, t=T, w=Wind_scenarios], lower_bound=-brdc_rate_a[d], upper_bound=brdc_rate_a[d], base_name="brdc_p_ss") # actual DC line flow in each wind realization (second stage)
+    
+    
     # Converters
-    conv_p_ac_fs = m.ext[:variables][:conv_p_ac_fs] = @variable(m, [cv=CV, t=T], lower_bound=-conv_p_ac_max[cv], upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_fs") # converter active power
-    conv_p_ac_ss = m.ext[:variables][:conv_p_ac_ss] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=-conv_p_ac_max[cv], upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_ss") # converter active power
-    conv_p_ac_ss_up = m.ext[:variables][:conv_p_ac_ss_up] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*conv_p_ac_max[cv], base_name="conv_p_ac_ss_up") # upward adjustment of converter AC power w.r.t. the first-stage schedule
-    conv_p_ac_ss_dn = m.ext[:variables][:conv_p_ac_ss_dn] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*conv_p_ac_max[cv], base_name="conv_p_ac_ss_dn") # downward adjustment of converter AC power w.r.t. the first-stage schedule
+    conv_p_ac_fs    = m.ext[:variables][:conv_p_ac_fs]    = @variable(m, [cv=CV, t=T],                   lower_bound=-conv_p_ac_max[cv], upper_bound=conv_p_ac_max[cv],   base_name="conv_p_ac_fs")    # converter AC power in the day-ahead schedule (first stage)
+    conv_p_ac_ss    = m.ext[:variables][:conv_p_ac_ss]    = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=-conv_p_ac_max[cv], upper_bound=conv_p_ac_max[cv],   base_name="conv_p_ac_ss")    # actual converter AC power in each wind realization (second stage)
+    conv_p_ac_ss_up = m.ext[:variables][:conv_p_ac_ss_up] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=0,                  upper_bound=2*conv_p_ac_max[cv], base_name="conv_p_ac_ss_up") # upward adjustment of converter AC power w.r.t. the first-stage schedule
+    conv_p_ac_ss_dn = m.ext[:variables][:conv_p_ac_ss_dn] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=0,                  upper_bound=2*conv_p_ac_max[cv], base_name="conv_p_ac_ss_dn") # downward adjustment of converter AC power w.r.t. the first-stage schedule
 
-    conv_p_ac_abs_fs = m.ext[:variables][:conv_p_ac_abs_fs] = @variable(m, [cv=CV, t=T], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_abs_fs") # absorbed power converter
-    conv_p_ac_abs_ss = m.ext[:variables][:conv_p_ac_abs_ss] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_abs_ss") # absorbed power converter
+    
+    conv_p_ac_abs_fs = m.ext[:variables][:conv_p_ac_abs_fs] = @variable(m, [cv=CV, t=T],                   lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_abs_fs") # power absorbed by the converter from the AC side (first stage)
+    conv_p_ac_abs_ss = m.ext[:variables][:conv_p_ac_abs_ss] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_abs_ss") # power absorbed by the converter from the AC side (second stage)
 
-    conv_p_ac_inj_fs = m.ext[:variables][:conv_p_ac_inj_fs] = @variable(m, [cv=CV, t=T], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_inj_fs") # injected power converter
-    conv_p_ac_inj_ss = m.ext[:variables][:conv_p_ac_inj_ss] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_inj_ss") # injected power converter
+    conv_p_ac_inj_fs = m.ext[:variables][:conv_p_ac_inj_fs] = @variable(m, [cv=CV, t=T],                   lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_inj_fs") # power injected by the converter into the AC side (first stage)
+    conv_p_ac_inj_ss = m.ext[:variables][:conv_p_ac_inj_ss] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=conv_p_ac_max[cv], base_name="conv_p_ac_inj_ss") # power injected by the converter into the AC side (second stage)
 
-    u_conv_p_ac_fs = m.ext[:variables][:u_conv_p_ac_fs] = @variable(m, [cv=CV, t=T], binary=true, base_name="u_conv_p_ac_fs") # binary variable for converter active power
-    u_conv_p_ac_ss = m.ext[:variables][:u_conv_p_ac_ss] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], binary=true, base_name="u_conv_p_ac_ss") # binary variable for converter active power
+    u_conv_p_ac_fs = m.ext[:variables][:u_conv_p_ac_fs] = @variable(m, [cv=CV, t=T],                   binary=true, base_name="u_conv_p_ac_fs") # converter direction: 1 if injecting, 0 if absorbing (first stage)
+    u_conv_p_ac_ss = m.ext[:variables][:u_conv_p_ac_ss] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], binary=true, base_name="u_conv_p_ac_ss") # converter direction: 1 if injecting, 0 if absorbing (second stage)
 
-    conv_p_dc_fs = m.ext[:variables][:conv_p_dc_fs] = @variable(m, [cv=CV, t=T], lower_bound=-conv_p_dc_max[cv], upper_bound=conv_p_dc_max[cv], base_name="conv_p_dc_fs") # converter active power
-    conv_p_dc_ss = m.ext[:variables][:conv_p_dc_ss] = @variable(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios], lower_bound=-conv_p_dc_max[cv], upper_bound=conv_p_dc_max[cv], base_name="conv_p_dc_ss") # converter active power
+    conv_p_dc_fs = m.ext[:variables][:conv_p_dc_fs] = @variable(m, [cv=CV, t=T],                   lower_bound=-conv_p_dc_max[cv], upper_bound=conv_p_dc_max[cv], base_name="conv_p_dc_fs") # converter DC power (first stage)
+    conv_p_dc_ss = m.ext[:variables][:conv_p_dc_ss] = @variable(m, [cv=CV, t=T, w=Wind_scenarios], lower_bound=-conv_p_dc_max[cv], upper_bound=conv_p_dc_max[cv], base_name="conv_p_dc_ss") # converter DC power (second stage)
 
-    rhvdc_lg1_ss = m.ext[:variables][:rhvdc_lg1_ss] = @variable(m, [cv=CV1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg1_ss") # frequency reserve HVDC loss of generation area 1
-    rhvdc_lc1_ss = m.ext[:variables][:rhvdc_lc1_ss] = @variable(m, [cv=CV1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc1_ss") # frequency reserve HVDC loss of converter area 1
-    rhvdc_lg2_ss = m.ext[:variables][:rhvdc_lg2_ss] = @variable(m, [cv=CV2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg2_ss") # frequency reserve HVDC loss of generation area 2
-    rhvdc_lc2_ss = m.ext[:variables][:rhvdc_lc2_ss] = @variable(m, [cv=CV2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc2_ss") # frequency reserve HVDC loss of converter area 2
-
+    
+    rhvdc_lg1_ss = m.ext[:variables][:rhvdc_lg1_ss] = @variable(m, [cv=CV1, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg1_ss") # HVDC reserve delivered to area 1 for the loss of generator k in area 1
+    rhvdc_lc1_ss = m.ext[:variables][:rhvdc_lc1_ss] = @variable(m, [cv=CV1, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc1_ss") # HVDC reserve delivered to area 1 for the loss of converter k in area 1
+    rhvdc_lg2_ss = m.ext[:variables][:rhvdc_lg2_ss] = @variable(m, [cv=CV2, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lg2_ss") # HVDC reserve delivered to area 2 for the loss of generator k in area 2
+    rhvdc_lc2_ss = m.ext[:variables][:rhvdc_lc2_ss] = @variable(m, [cv=CV2, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, upper_bound=2*(40/40)conv_p_dc_max[cv], base_name="rhvdc_lc2_ss") # HVDC reserve delivered to area 2 for the loss of converter k in area 2
+    
+        
     # Reservoir storage variables
-    e_reservoir_fs = m.ext[:variables][:e_reservoir_fs] = @variable(m, [g=G_reservoir, t=T], lower_bound=0, upper_bound=G_storage[g], base_name="e_reservoir_fs") # energy storage reservoir
-    e_reservoir_ss = m.ext[:variables][:e_reservoir_ss] = @variable(m, [g=G_reservoir, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=G_storage[g], base_name="e_reservoir_ss") # energy storage reservoir
+    e_reservoir_fs = m.ext[:variables][:e_reservoir_fs] = @variable(m, [g=G_reservoir, t=T],                   lower_bound=0, upper_bound=G_storage[g], base_name="e_reservoir_fs") # energy stored in the reservoir (first stage)
+    e_reservoir_ss = m.ext[:variables][:e_reservoir_ss] = @variable(m, [g=G_reservoir, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=G_storage[g], base_name="e_reservoir_ss") # energy stored in the reservoir (second stage)
+
 
     # Pump generators variables
-    p_charge_pump_fs = m.ext[:variables][:p_charge_pump_fs] = @variable(m, [g=G_pump, t=T], base_name="p_charge_pump_fs")
-    p_charge_pump_ss = m.ext[:variables][:p_charge_pump_ss] = @variable(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios], base_name="p_charge_pump_ss")
-    p_charge_pump_ss_up = m.ext[:variables][:p_charge_pump_ss_up] = @variable(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="p_charge_pump_ss_up") # upward adjustment of pumping power w.r.t. the first-stage schedule
-    p_charge_pump_ss_dn = m.ext[:variables][:p_charge_pump_ss_dn] = @variable(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="p_charge_pump_ss_dn") # downward adjustment of pumping power w.r.t. the first-stage schedule
+    p_charge_pump_fs    = m.ext[:variables][:p_charge_pump_fs]    = @variable(m, [g=G_pump, t=T],                   lower_bound=0, base_name="p_charge_pump_fs")    # pumping power (first stage)
+    p_charge_pump_ss    = m.ext[:variables][:p_charge_pump_ss]    = @variable(m, [g=G_pump, t=T, w=Wind_scenarios], lower_bound=0, base_name="p_charge_pump_ss")    # pumping power (second stage)
+    p_charge_pump_ss_up = m.ext[:variables][:p_charge_pump_ss_up] = @variable(m, [g=G_pump, t=T, w=Wind_scenarios], lower_bound=0, base_name="p_charge_pump_ss_up") # upward adjustment of pumping power w.r.t. the first-stage schedule
+    p_charge_pump_ss_dn = m.ext[:variables][:p_charge_pump_ss_dn] = @variable(m, [g=G_pump, t=T, w=Wind_scenarios], lower_bound=0, base_name="p_charge_pump_ss_dn") # downward adjustment of pumping power w.r.t. the first-stage schedule
 
-    e_pump_fs = m.ext[:variables][:e_pump_fs] = @variable(m, [g=G_pump, t=T], lower_bound=0, upper_bound=G_storage[g], base_name="e_pump_fs") # energy storage pump
-    e_pump_ss = m.ext[:variables][:e_pump_ss] = @variable(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=G_storage[g], base_name="e_pump_ss") # energy storage pump
+    e_pump_fs = m.ext[:variables][:e_pump_fs] = @variable(m, [g=G_pump, t=T],                   lower_bound=0, upper_bound=G_storage[g], base_name="e_pump_fs") # energy stored in the pumped-storage reservoir (first stage)
+    e_pump_ss = m.ext[:variables][:e_pump_ss] = @variable(m, [g=G_pump, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=G_storage[g], base_name="e_pump_ss") # energy stored in the pumped-storage reservoir (second stage)
+
 
     # Electrolyzer continuous variables
-    pe_fs = m.ext[:variables][:pe_fs] = @variable(m, [e=E, t=T], lower_bound=0, upper_bound=Epmax[e], base_name="pe_fs") # Electrolyzer power consumption
-    pe_ss = m.ext[:variables][:pe_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss") # Electrolyzer power consumption
-    pe_ss_up = m.ext[:variables][:pe_ss_up] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss_up") # upward adjustment of electrolyzer consumption w.r.t. the first-stage schedule
-    pe_ss_dn = m.ext[:variables][:pe_ss_dn] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss_dn") # downward adjustment of electrolyzer consumption w.r.t. the first-stage schedule
+    pe_fs    = m.ext[:variables][:pe_fs]    = @variable(m, [e=E, t=T],                   lower_bound=0, upper_bound=Epmax[e], base_name="pe_fs")    # electrolyzer power consumption (first stage)
+    pe_ss    = m.ext[:variables][:pe_ss]    = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss")    # electrolyzer power consumption (second stage)
+    pe_ss_up = m.ext[:variables][:pe_ss_up] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss_up") # upward adjustment of electrolyzer consumption w.r.t. the first-stage schedule
+    pe_ss_dn = m.ext[:variables][:pe_ss_dn] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Epmax[e], base_name="pe_ss_dn") # downward adjustment of electrolyzer consumption w.r.t. the first-stage schedule
 
-    pe_compressor_fs = m.ext[:variables][:pe_compressor_fs] = @variable(m, [e=E, t=T], lower_bound=0, base_name="pe_compressor_fs") # Electrolyzer power consumption for compressor
-    pe_compressor_ss = m.ext[:variables][:pe_compressor_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="pe_compressor_ss") # Electrolyzer power consumption for compressor
+    pe_compressor_fs = m.ext[:variables][:pe_compressor_fs] = @variable(m, [e=E, t=T],                   lower_bound=0, base_name="pe_compressor_fs") # compressor power consumption (first stage)
+    pe_compressor_ss = m.ext[:variables][:pe_compressor_ss] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, base_name="pe_compressor_ss") # compressor power consumption (second stage)
 
-    pes_fs = m.ext[:variables][:pes_fs] = @variable(m, [e=E, t=T], lower_bound=0, base_name="pes_fs") # Electrolyzer reserve power
-    pes_ss = m.ext[:variables][:pes_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="pes_ss") # Electrolyzer reserve power
+    hfe_fs = m.ext[:variables][:hfe_fs] = @variable(m, [e=E, t=T],                   lower_bound=0, upper_bound=Eflowmax[e], base_name="hfe_fs") # hydrogen produced by the electrolyzer (first stage)
+    hfe_ss = m.ext[:variables][:hfe_ss] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfe_ss") # hydrogen produced by the electrolyzer (second stage)
 
-    hfe_fs = m.ext[:variables][:hfe_fs] = @variable(m, [e=E, t=T], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfe_fs") # Electrolyzer hydrogen flow
-    hfe_ss = m.ext[:variables][:hfe_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfe_ss") # Electrolyzer hydrogen flow
+    hfginyect_fs    = m.ext[:variables][:hfginyect_fs]    = @variable(m, [e=E, t=T],                   lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_fs")    # hydrogen sold (injected to the hydrogen grid), first stage
+    hfginyect_ss    = m.ext[:variables][:hfginyect_ss]    = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss")    # hydrogen sold (injected to the hydrogen grid), second stage
+    hfginyect_ss_up = m.ext[:variables][:hfginyect_ss_up] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss_up") # upward adjustment of hydrogen sold w.r.t. the first-stage schedule
+    hfginyect_ss_dn = m.ext[:variables][:hfginyect_ss_dn] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss_dn") # downward adjustment of hydrogen sold w.r.t. the first-stage schedule
 
-    hfginyect_fs = m.ext[:variables][:hfginyect_fs] = @variable(m, [e=E, t=T], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_fs") # Electrolyzer hydrogen flow injected to the hydrogen grid
-    hfginyect_ss = m.ext[:variables][:hfginyect_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss") # Electrolyzer hydrogen flow injected to the hydrogen grid
-    hfginyect_ss_up = m.ext[:variables][:hfginyect_ss_up] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss_up") # upward adjustment of hydrogen sold (injected) w.r.t. the first-stage schedule
-    hfginyect_ss_dn = m.ext[:variables][:hfginyect_ss_dn] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfginyect_ss_dn") # downward adjustment of hydrogen sold (injected) w.r.t. the first-stage schedule
+    hfgconsum_fs    = m.ext[:variables][:hfgconsum_fs]    = @variable(m, [e=E, t=T],                   lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_fs")    # hydrogen purchased (consumed from the hydrogen grid), first stage
+    hfgconsum_ss    = m.ext[:variables][:hfgconsum_ss]    = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss")    # hydrogen purchased (consumed from the hydrogen grid), second stage
+    hfgconsum_ss_up = m.ext[:variables][:hfgconsum_ss_up] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss_up") # upward adjustment of hydrogen purchased w.r.t. the first-stage schedule
+    hfgconsum_ss_dn = m.ext[:variables][:hfgconsum_ss_dn] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss_dn") # downward adjustment of hydrogen purchased w.r.t. the first-stage schedule
 
-    hfgconsum_fs = m.ext[:variables][:hfgconsum_fs] = @variable(m, [e=E, t=T], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_fs") # Electrolyzer hydrogen flow consumed from the hydrogen grid
-    hfgconsum_ss = m.ext[:variables][:hfgconsum_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss") # Electrolyzer hydrogen flow consumed from the hydrogen grid
-    hfgconsum_ss_up = m.ext[:variables][:hfgconsum_ss_up] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss_up") # upward adjustment of hydrogen purchased (consumed) w.r.t. the first-stage schedule
-    hfgconsum_ss_dn = m.ext[:variables][:hfgconsum_ss_dn] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, upper_bound=Eflowmax[e], base_name="hfgconsum_ss_dn") # downward adjustment of hydrogen purchased (consumed) w.r.t. the first-stage schedule
+    hss_fs = m.ext[:variables][:hss_fs] = @variable(m, [e=E, t=T],                   lower_bound=Estoragemin[e], upper_bound=Estoragemax[e], base_name="hss_fs") # hydrogen storage level (first stage)
+    hss_ss = m.ext[:variables][:hss_ss] = @variable(m, [e=E, t=T, w=Wind_scenarios], lower_bound=Estoragemin[e], upper_bound=Estoragemax[e], base_name="hss_ss") # hydrogen storage level (second stage)
     
-    hss_fs = m.ext[:variables][:hss_fs] = @variable(m, [e=E, t=T], lower_bound=Estoragemin[e], upper_bound=Estoragemax[e], base_name="hss_fs") # Electrolyzer storage level
-    hss_ss = m.ext[:variables][:hss_ss] = @variable(m, [e=E, t=T, k=fallos, w=Wind_scenarios], lower_bound=Estoragemin[e], upper_bound=Estoragemax[e], base_name="hss_ss") # Electrolyzer storage level
-
+    
+    
     # Electrolyzer binary variables (first stage only)
     ze_fs = m.ext[:variables][:ze_fs] = @variable(m, [e=E, t=T], binary=true, base_name="ze_fs") # Electrolyzer status
     zesu_fs = m.ext[:variables][:zesu_fs] = @variable(m, [e=E, t=T], binary=true, base_name="zesu_fs") # Electrolyzer start up
     zestb_fs = m.ext[:variables][:zestb_fs] = @variable(m, [e=E, t=T], binary=true, base_name="zestb_fs") # Electrolyzer standby indicator
 
     # Electrolyzer reserve variables
-    re_lg1_ss = m.ext[:variables][:re_lg1_ss] = @variable(m, [e=E1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_lg1_ss") # frequency reserve electrolyzers loss of generation area 1
 
-    re_lc1_ss = m.ext[:variables][:re_lc1_ss] = @variable(m, [e=E1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_lc1_ss") # frequency reserve electrolyzers loss of converter area 1
+    # Reserve of electrolyzers for the loss of a generator / converter in their own area
+    re_lg1_ss = m.ext[:variables][:re_lg1_ss] = @variable(m, [e=E1, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="re_lg1_ss") # frequency reserve of electrolyzers in area 1 for the loss of generator k in area 1
+    re_lc1_ss = m.ext[:variables][:re_lc1_ss] = @variable(m, [e=E1, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="re_lc1_ss") # frequency reserve of electrolyzers in area 1 for the loss of converter k in area 1
+    re_lg2_ss = m.ext[:variables][:re_lg2_ss] = @variable(m, [e=E2, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="re_lg2_ss") # frequency reserve of electrolyzers in area 2 for the loss of generator k in area 2
+    re_lc2_ss = m.ext[:variables][:re_lc2_ss] = @variable(m, [e=E2, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="re_lc2_ss") # frequency reserve of electrolyzers in area 2 for the loss of converter k in area 2
 
-    re_lg2_ss = m.ext[:variables][:re_lg2_ss] = @variable(m, [e=E2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_lg2_ss") # frequency reserve electrolyzer loss of generation area 2
-
-    re_lc2_ss = m.ext[:variables][:re_lc2_ss] = @variable(m, [e=E2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_lc2_ss") # frequency reserve electrolyzer loss of converter area 2
-
-    re_l_reserve_1_ss = m.ext[:variables][:re_l_reserve_1_ss] = @variable(m, [e=E1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_1_ss") # frequency reserve for FCR provision
-
-    re_l_reserve_2_ss = m.ext[:variables][:re_l_reserve_2_ss] = @variable(m, [e=E2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_2_ss") # frequency reserve for FCR provision
-
+    # Reserve of electrolyzers to cover the imbalance created when the HVDC link delivers reserve to the other area
+    re_l_reserve_1_g_ss = m.ext[:variables][:re_l_reserve_1_g_ss] = @variable(m, [e=E1, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_1_g_ss") # area 1 reserve when HVDC supports area 2 after the loss of generator k in area 2
+    re_l_reserve_1_c_ss = m.ext[:variables][:re_l_reserve_1_c_ss] = @variable(m, [e=E1, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_1_c_ss") # area 1 reserve when HVDC supports area 2 after the loss of converter k in area 2
+    re_l_reserve_2_g_ss = m.ext[:variables][:re_l_reserve_2_g_ss] = @variable(m, [e=E2, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_2_g_ss") # area 2 reserve when HVDC supports area 1 after the loss of generator k in area 1
+    re_l_reserve_2_c_ss = m.ext[:variables][:re_l_reserve_2_c_ss] = @variable(m, [e=E2, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="re_l_reserve_2_c_ss") # area 2 reserve when HVDC supports area 1 after the loss of converter k in area 1
+    
     r_proc_e_1 = m.ext[:variables][:r_proc_e_1] = @variable(m, [e=E1, t=T], lower_bound=0, base_name="r_proc_e_1") # procured reserve electrolyzers area 1
     r_proc_e_2 = m.ext[:variables][:r_proc_e_2] = @variable(m, [e=E2, t=T], lower_bound=0, base_name="r_proc_e_2") # procured reserve electrolyzers area 2
 
     # Storage variables
-    psc_fs = m.ext[:variables][:psc_fs] = @variable(m, [s=S, t=T], lower_bound=0, base_name="psc_fs") # Charging power of the batteries
-    psc_ss = m.ext[:variables][:psc_ss] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psc_ss") # Charging power of the batteries
-    psc_ss_up = m.ext[:variables][:psc_ss_up] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psc_ss_up") # upward adjustment of battery charging power w.r.t. the first-stage schedule
-    psc_ss_dn = m.ext[:variables][:psc_ss_dn] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psc_ss_dn") # downward adjustment of battery charging power w.r.t. the first-stage schedule
+    psc_fs    = m.ext[:variables][:psc_fs]    = @variable(m, [s=S, t=T],                   lower_bound=0, base_name="psc_fs")    # battery charging power (first stage)
+    psc_ss    = m.ext[:variables][:psc_ss]    = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psc_ss")    # battery charging power (second stage)
+    psc_ss_up = m.ext[:variables][:psc_ss_up] = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psc_ss_up") # upward adjustment of battery charging power w.r.t. the first-stage schedule
+    psc_ss_dn = m.ext[:variables][:psc_ss_dn] = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psc_ss_dn") # downward adjustment of battery charging power w.r.t. the first-stage schedule
 
-    psd_fs = m.ext[:variables][:psd_fs] = @variable(m, [s=S, t=T], lower_bound=0, base_name="psd_fs") # Discharging power of the batteries
-    psd_ss = m.ext[:variables][:psd_ss] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psd_ss") # Discharging power of the batteries
-    psd_ss_up = m.ext[:variables][:psd_ss_up] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psd_ss_up") # upward adjustment of battery discharging power w.r.t. the first-stage schedule
-    psd_ss_dn = m.ext[:variables][:psd_ss_dn] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="psd_ss_dn") # downward adjustment of battery discharging power w.r.t. the first-stage schedule
+    psd_fs    = m.ext[:variables][:psd_fs]    = @variable(m, [s=S, t=T],                   lower_bound=0, base_name="psd_fs")    # battery discharging power (first stage)
+    psd_ss    = m.ext[:variables][:psd_ss]    = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psd_ss")    # battery discharging power (second stage)
+    psd_ss_up = m.ext[:variables][:psd_ss_up] = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psd_ss_up") # upward adjustment of battery discharging power w.r.t. the first-stage schedule
+    psd_ss_dn = m.ext[:variables][:psd_ss_dn] = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=0, base_name="psd_ss_dn") # downward adjustment of battery discharging power w.r.t. the first-stage schedule
 
-    es_fs = m.ext[:variables][:es_fs] = @variable(m, [s=S, t=T], lower_bound=Sstoragemax[s]*(1-Sdod[s]), upper_bound=Sstoragemax[s], base_name="es_fs") # Energy bounds of the batteries
-    es_ss = m.ext[:variables][:es_ss] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], lower_bound=Sstoragemax[s]*(1-Sdod[s]), upper_bound=Sstoragemax[s], base_name="es_ss") # Energy bounds of the batteries
+    es_fs = m.ext[:variables][:es_fs] = @variable(m, [s=S, t=T],                   lower_bound=Sstoragemax[s]*(1-Sdod[s]), upper_bound=Sstoragemax[s], base_name="es_fs") # energy stored in the battery (first stage)
+    es_ss = m.ext[:variables][:es_ss] = @variable(m, [s=S, t=T, w=Wind_scenarios], lower_bound=Sstoragemax[s]*(1-Sdod[s]), upper_bound=Sstoragemax[s], base_name="es_ss") # energy stored in the battery (second stage)
 
-    zs_fs = m.ext[:variables][:zs_fs] = @variable(m, [s=S, t=T], binary=true, base_name="zs_fs") # standby indicator of the batteries
-    zs_ss = m.ext[:variables][:zs_ss] = @variable(m, [s=S, t=T, k=fallos, w=Wind_scenarios], binary=true, base_name="zs_ss") # standby indicator of the batteries
+    zs_fs = m.ext[:variables][:zs_fs] = @variable(m, [s=S, t=T],                   binary=true, base_name="zs_fs") # battery status: 1 if discharging, 0 if charging (first stage)
+    zs_ss = m.ext[:variables][:zs_ss] = @variable(m, [s=S, t=T, w=Wind_scenarios], binary=true, base_name="zs_ss") # battery status: 1 if discharging, 0 if charging (second stage)
 
-    rs_lg1_ss = m.ext[:variables][:rs_lg1_ss] = @variable(m, [s=S1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_lg1_ss") # frequency reserve batteries loss of generation area 1
+    # Reserve of batteries for the loss of a generator / converter in their own area
+    rs_lg1_ss = m.ext[:variables][:rs_lg1_ss] = @variable(m, [s=S1, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="rs_lg1_ss") # frequency reserve of batteries in area 1 for the loss of generator k in area 1
+    rs_lg2_ss = m.ext[:variables][:rs_lg2_ss] = @variable(m, [s=S2, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="rs_lg2_ss") # frequency reserve of batteries in area 2 for the loss of generator k in area 2
+    rs_lc1_ss = m.ext[:variables][:rs_lc1_ss] = @variable(m, [s=S1, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="rs_lc1_ss") # frequency reserve of batteries in area 1 for the loss of converter k in area 1
+    rs_lc2_ss = m.ext[:variables][:rs_lc2_ss] = @variable(m, [s=S2, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="rs_lc2_ss") # frequency reserve of batteries in area 2 for the loss of converter k in area 2
 
-    rs_lg2_ss = m.ext[:variables][:rs_lg2_ss] = @variable(m, [s=S2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_lg2_ss") # frequency reserve batteries loss of generation area 2
-
-    rs_lc1_ss = m.ext[:variables][:rs_lc1_ss] = @variable(m, [s=S1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_lc1_ss") # frequency reserve batteries loss of converter area 1
-
-    rs_lc2_ss = m.ext[:variables][:rs_lc2_ss] = @variable(m, [s=S2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_lc2_ss") # frequency reserve batteries loss of converter area 2
-
-    rs_l_reserve_1_ss = m.ext[:variables][:rs_l_reserve_1_ss] = @variable(m, [s=S1, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_1_ss") # frequency reserve for FCR provision
-
-    rs_l_reserve_2_ss = m.ext[:variables][:rs_l_reserve_2_ss] = @variable(m, [s=S2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_2_ss") # frequency reserve for FCR provision
+    # Reserve of batteries to cover the imbalance created when the HVDC link delivers reserve to the other area
+    rs_l_reserve_1_g_ss = m.ext[:variables][:rs_l_reserve_1_g_ss] = @variable(m, [s=S1, t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_1_g_ss") # area 1 reserve when HVDC supports area 2 after the loss of generator k in area 2
+    rs_l_reserve_1_c_ss = m.ext[:variables][:rs_l_reserve_1_c_ss] = @variable(m, [s=S1, t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_1_c_ss") # area 1 reserve when HVDC supports area 2 after the loss of converter k in area 2
+    rs_l_reserve_2_g_ss = m.ext[:variables][:rs_l_reserve_2_g_ss] = @variable(m, [s=S2, t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_2_g_ss") # area 2 reserve when HVDC supports area 1 after the loss of generator k in area 1
+    rs_l_reserve_2_c_ss = m.ext[:variables][:rs_l_reserve_2_c_ss] = @variable(m, [s=S2, t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_2_c_ss") # area 2 reserve when HVDC supports area 1 after the loss of converter k in area 1= m.ext[:variables][:rs_l_reserve_2_ss] = @variable(m, [s=S2, t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="rs_l_reserve_2_ss") # frequency reserve for FCR provision
 
     r_proc_s_1 = m.ext[:variables][:r_proc_s_1] = @variable(m, [s=S1, t=T], lower_bound=0, base_name="r_proc_s_1") # procured reserve batteries area 1
     r_proc_s_2 = m.ext[:variables][:r_proc_s_2] = @variable(m, [s=S2, t=T], lower_bound=0, base_name="r_proc_s_2") # procured reserve batteries area 2
 
-    # Frequency stability variables
-    plg1_ss = m.ext[:variables][:plg1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plg1_ss") # loss of power generators area 1
-    plg2_ss = m.ext[:variables][:plg2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plg2_ss") # loss of power generators area 2
-    plc1_ss = m.ext[:variables][:plc1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plc1_ss") # loss of power converters area 1
-    plc2_ss = m.ext[:variables][:plc2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plc2_ss") # loss of power converters area 2
-    plreserve_1_ss = m.ext[:variables][:plreserve_1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plreserve_1_ss") # loss of power due to the FCR provision
-    plreserve_2_ss = m.ext[:variables][:plreserve_2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="plreserve_2_ss") # loss of power due to the FCR provision
+    # Frequency stability variables (second stage: one value per contingency k and wind scenario w)
+    plg1_ss = m.ext[:variables][:plg1_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="plg1_ss") # power lost in area 1 when generator k of area 1 trips
+    plg2_ss = m.ext[:variables][:plg2_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="plg2_ss") # power lost in area 2 when generator k of area 2 trips
+    plc1_ss = m.ext[:variables][:plc1_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="plc1_ss") # power lost in area 1 when converter k of area 1 trips
+    plc2_ss = m.ext[:variables][:plc2_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="plc2_ss") # power lost in area 2 when converter k of area 2 trips
 
-    # Auxiliary variables for rotated second order cone constraints
-    ypg1_ss = m.ext[:variables][:ypg1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypg1_ss") # Auxiliary variable rotated SOC generators fault area 1
-    zpg1_ss = m.ext[:variables][:zpg1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpg1_ss") # Auxiliary variable rotated SOC generators fault area 1
-    ypc1_ss = m.ext[:variables][:ypc1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypc1_ss") # Auxiliary variable rotated SOC converters fault area 1
-    zpc1_ss = m.ext[:variables][:zpc1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpc1_ss") # Auxiliary variable rotated SOC converters fault area 1
-    ypg2_ss = m.ext[:variables][:ypg2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypg2_ss") # Auxiliary variable rotated SOC generators fault area 2
-    zpg2_ss = m.ext[:variables][:zpg2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpg2_ss") # Auxiliary variable rotated SOC generators fault area 2
-    ypc2_ss = m.ext[:variables][:ypc2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypc2_ss") # Auxiliary variable rotated SOC converters fault area 2
-    zpc2_ss = m.ext[:variables][:zpc2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpc2_ss") # Auxiliary variable rotated SOC converters fault area 2
-    ypreserve1_ss = m.ext[:variables][:ypreserve1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypreserve1_ss") # Auxiliary variable rotated SOC reserve provision fault area 1
-    zpreserve1_ss = m.ext[:variables][:zpreserve1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpreserve1_ss") # Auxiliary variable rotated SOC reserve provision fault area 1
-    ypreserve2_ss = m.ext[:variables][:ypreserve2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="ypreserve2_ss") # Auxiliary variable rotated SOC reserve provision fault area 2
-    zpreserve2_ss = m.ext[:variables][:zpreserve2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="zpreserve2_ss") # Auxiliary variable rotated SOC reserve provision fault area 2
+    # Power lost in one area because it sends FCR through the HVDC to the other area (triggered by a contingency in the other area)
+    plreserve_1_g_ss = m.ext[:variables][:plreserve_1_g_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="plreserve_1_g_ss") # area 1 imbalance when generator k of area 2 trips
+    plreserve_1_c_ss = m.ext[:variables][:plreserve_1_c_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="plreserve_1_c_ss") # area 1 imbalance when converter k of area 2 trips
+    plreserve_2_g_ss = m.ext[:variables][:plreserve_2_g_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="plreserve_2_g_ss") # area 2 imbalance when generator k of area 1 trips
+    plreserve_2_c_ss = m.ext[:variables][:plreserve_2_c_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="plreserve_2_c_ss") # area 2 imbalance when converter k of area 1 trips
 
+    # Auxiliary variables for the rotated second-order cone (nadir) constraints, one pair per contingency k and wind scenario w
+    ypg1_ss = m.ext[:variables][:ypg1_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="ypg1_ss") # rotated SOC auxiliary, generator k of area 1 trips
+    zpg1_ss = m.ext[:variables][:zpg1_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="zpg1_ss") # rotated SOC auxiliary, generator k of area 1 trips
+    ypc1_ss = m.ext[:variables][:ypc1_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="ypc1_ss") # rotated SOC auxiliary, converter k of area 1 trips
+    zpc1_ss = m.ext[:variables][:zpc1_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="zpc1_ss") # rotated SOC auxiliary, converter k of area 1 trips
+    ypg2_ss = m.ext[:variables][:ypg2_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="ypg2_ss") # rotated SOC auxiliary, generator k of area 2 trips
+    zpg2_ss = m.ext[:variables][:zpg2_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="zpg2_ss") # rotated SOC auxiliary, generator k of area 2 trips
+    ypc2_ss = m.ext[:variables][:ypc2_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="ypc2_ss") # rotated SOC auxiliary, converter k of area 2 trips
+    zpc2_ss = m.ext[:variables][:zpc2_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="zpc2_ss") # rotated SOC auxiliary, converter k of area 2 trips
+
+    # Reserve-provision imbalance: area 1 cones are triggered by contingencies in area 2, and vice versa
+    ypreserve1_g_ss = m.ext[:variables][:ypreserve1_g_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="ypreserve1_g_ss") # rotated SOC auxiliary, area 1 supports area 2 after generator k trips
+    zpreserve1_g_ss = m.ext[:variables][:zpreserve1_g_ss] = @variable(m, [t=T, k=fallos_g2, w=Wind_scenarios], lower_bound=0, base_name="zpreserve1_g_ss") # rotated SOC auxiliary, area 1 supports area 2 after generator k trips
+    ypreserve1_c_ss = m.ext[:variables][:ypreserve1_c_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="ypreserve1_c_ss") # rotated SOC auxiliary, area 1 supports area 2 after converter k trips
+    zpreserve1_c_ss = m.ext[:variables][:zpreserve1_c_ss] = @variable(m, [t=T, k=fallos_c2, w=Wind_scenarios], lower_bound=0, base_name="zpreserve1_c_ss") # rotated SOC auxiliary, area 1 supports area 2 after converter k trips
+    ypreserve2_g_ss = m.ext[:variables][:ypreserve2_g_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="ypreserve2_g_ss") # rotated SOC auxiliary, area 2 supports area 1 after generator k trips
+    zpreserve2_g_ss = m.ext[:variables][:zpreserve2_g_ss] = @variable(m, [t=T, k=fallos_g1, w=Wind_scenarios], lower_bound=0, base_name="zpreserve2_g_ss") # rotated SOC auxiliary, area 2 supports area 1 after generator k trips
+    ypreserve2_c_ss = m.ext[:variables][:ypreserve2_c_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="ypreserve2_c_ss") # rotated SOC auxiliary, area 2 supports area 1 after converter k trips
+    zpreserve2_c_ss = m.ext[:variables][:zpreserve2_c_ss] = @variable(m, [t=T, k=fallos_c1, w=Wind_scenarios], lower_bound=0, base_name="zpreserve2_c_ss") # rotated SOC auxiliary, area 2 supports area 1 after converter k trips
+    
     # Other variables
-    load_shed_1_fs = m.ext[:variables][:load_shed_1_fs] = @variable(m, [t=T], lower_bound=0, base_name="load_shed_1_fs") # Load shedding area 1
-    load_shed_1_ss = m.ext[:variables][:load_shed_1_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="load_shed_1_ss") # Load shedding area 1
+    load_shed_1_fs = m.ext[:variables][:load_shed_1_fs] = @variable(m, [t=T], lower_bound=0, base_name="load_shed_1_fs") # load shedding in area 1, day-ahead schedule (first stage)
+    load_shed_1_ss = m.ext[:variables][:load_shed_1_ss] = @variable(m, [t=T, w=Wind_scenarios], lower_bound=0, base_name="load_shed_1_ss") # load shedding in area 1, actual operation in wind scenario w (second stage)
 
-    load_shed_2_fs = m.ext[:variables][:load_shed_2_fs] = @variable(m, [t=T], lower_bound=0, base_name="load_shed_2_fs") # Load shedding area 2
-    load_shed_2_ss = m.ext[:variables][:load_shed_2_ss] = @variable(m, [t=T, k=fallos, w=Wind_scenarios], lower_bound=0, base_name="load_shed_2_ss") # Load shedding area 2
-    sigma= m.ext[:variables][:sigma] = @variable(m, base_name="sigma") # sigma variable to minimize
+    load_shed_2_fs = m.ext[:variables][:load_shed_2_fs] = @variable(m, [t=T], lower_bound=0, base_name="load_shed_2_fs") # load shedding in area 2, day-ahead schedule (first stage)
+    load_shed_2_ss = m.ext[:variables][:load_shed_2_ss] = @variable(m, [t=T, w=Wind_scenarios], lower_bound=0, base_name="load_shed_2_ss") # load shedding in area 2, actual operation in wind scenario w (second stage)
 
-    VOLL     = 10000
-    α,   β   = 1.1, 0.9
-    α_H, β_H = 1.1, 0.9
+    sigma = m.ext[:variables][:sigma] = @variable(m, base_name="sigma") # worst-case second-stage cost (free variable, no bounds)
 
-    m.ext[:objective] = @objective(m, Min,       sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] for g in G, t in T)
-    + sum(Estartupcost[e] * zesu_fs[e, t] for e in E, t in T)
-    + sum(start_up_cost[g] * betag_fs[g, t] for g in G, t in T)
-    + sum(Hydrogencost[e] * baseKG * (-hfginyect_fs[e, t] + hfgconsum_fs[e, t]) for e in E, t in T)
 
-    + sum(Ereservecost[e] * r_proc_e_1[e, t] for e in E1, t in T) * baseMVA
-    + sum(Ereservecost[e] * r_proc_e_2[e, t] for e in E2, t in T) * baseMVA
+#     # Tie-breaking penalty on deviations of zero-cost resources from their day-ahead schedule.
+#     # It only selects, among solutions with the same real cost, the one whose schedule is closest to
+#     # the actual operation. It must be much smaller than any real cost: here 0.1 % of the cheapest generator.
+    ε = 1e-4 * minimum(gen_cost[g][1] for g in G if gen_cost[g][1] > 0)
+    G_renewable = vcat(G_wind, G_solar)
 
-    + sum(Sreservecost[s] * r_proc_s_1[s, t] for s in S1, t in T) * baseMVA
-    + sum(Sreservecost[s] * r_proc_s_2[s, t] for s in S2, t in T) * baseMVA
-
-    + sum(G_reservecost[g] * r_proc_g_1[g, t] for g in G1, t in T) * baseMVA
-    + sum(G_reservecost[g] * r_proc_g_2[g, t] for g in G2, t in T) * baseMVA
-
-    + sum(load_shed_1_fs[t] * VOLL for t in T) * baseMVA
-    + sum(load_shed_2_fs[t] * VOLL for t in T) * baseMVA+sigma)
+       VOLL     = 10000
+    α,   β   = 1.1, 0.9     # generator redispatch multipliers
+    α_H, β_H = 1.1, 0.9     # hydrogen redispatch multipliers
 
 
 
+#     # Objective: first-stage cost (day-ahead schedule, commitment and procured reserve) + worst-case second-stage cost
+#     m.ext[:objective] = @objective(m, Min,
+#         # energy and no-load cost of the day-ahead schedule
+#           sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] * zg_fs[g, t] for g in G, t in T)
+#         # start-up costs
+#         + sum(Estartupcost[e] * zesu_fs[e, t] for e in E, t in T)
+#         + sum(start_up_cost[g] * betag_fs[g, t] for g in G, t in T)
+#         # day-ahead hydrogen purchases minus sales
+#         + sum(Hydrogencost[e] * baseKG * (hfgconsum_fs[e, t] - hfginyect_fs[e, t]) for e in E, t in T)
+#         # procured FCR
+#         + sum(Ereservecost[e] * r_proc_e_1[e, t] for e in E1, t in T) * baseMVA
+#         + sum(Ereservecost[e] * r_proc_e_2[e, t] for e in E2, t in T) * baseMVA
+#         + sum(Sreservecost[s] * r_proc_s_1[s, t] for s in S1, t in T) * baseMVA
+#         + sum(Sreservecost[s] * r_proc_s_2[s, t] for s in S2, t in T) * baseMVA
+#         + sum(G_reservecost[g] * r_proc_g_1[g, t] for g in G1, t in T) * baseMVA
+#         + sum(G_reservecost[g] * r_proc_g_2[g, t] for g in G2, t in T) * baseMVA
+#         # day-ahead load shedding
+#         + sum((load_shed_1_fs[t] + load_shed_2_fs[t]) * VOLL for t in T) * baseMVA
+#         # worst-case second-stage cost
+#         + sigma)
 
-m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
-      sum( α * gen_cost[g][1] * pg_ss_up[g, t, k, w]
-         - β * gen_cost[g][1] * pg_ss_dn[g, t, k, w]  for g in G, t in T)
+#   # Second-stage cost of each wind scenario w: only deviations from the day-ahead schedule are paid
+#     m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
+#         # generator redispatch
+#           sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
+#              - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
+#         # hydrogen market deviations
+#         + sum( Hydrogencost[e] * baseKG * (
+#                  α_H * hfgconsum_ss_up[e, t, w]
+#                - β_H * hfgconsum_ss_dn[e, t, w]
+#                - β_H * hfginyect_ss_up[e, t, w]
+#                + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
+#         # real-time load shedding
+#         + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
+#         # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
+#         + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
+#         # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
+#         + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T)
+#         <= sigma
+#     )
 
-    + sum( Hydrogencost[e] * baseKG * (
-             α_H * hfgconsum_ss_up[e, t, k, w]
-           - β_H * hfgconsum_ss_dn[e, t, k, w]
-           - β_H * hfginyect_ss_up[e, t, k, w]
-           + α_H * hfginyect_ss_dn[e, t, k, w] )
-           for e in E, t in T)
 
-    + sum( VOLL * (load_shed_1_ss[t, k, w] + load_shed_2_ss[t, k, w]) for t in T) * baseMVA
-    <= sigma
-)
 
+
+    ρ = 1e-5    # weight of the expected second-stage cost: tie-breaker so that non-worst scenarios are also optimized
+
+    # Second-stage cost of each wind scenario w (only deviations from the day-ahead schedule are paid).
+    # Defined as an expression because it is used both in the sigma constraint and in the objective.
+    cost_ss_expr = m.ext[:expressions][:cost_ss_expr] = @expression(m, [w = Wind_scenarios],
+        # generator redispatch
+          sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
+             - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
+        # hydrogen market deviations
+        + sum( Hydrogencost[e] * baseKG * (
+                 α_H * hfgconsum_ss_up[e, t, w]
+               - β_H * hfgconsum_ss_dn[e, t, w]
+               - β_H * hfginyect_ss_up[e, t, w]
+               + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
+        # real-time load shedding
+        + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
+        # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
+        + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
+        # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
+        + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T))
+
+    # sigma = worst-case second-stage cost
+    m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
+        cost_ss_expr[w] <= sigma)
+
+    m.ext[:objective] = @objective(m, Min,
+        # energy and no-load cost of the day-ahead schedule
+          sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] * zg_fs[g, t] for g in G, t in T)
+        # start-up costs
+        + sum(Estartupcost[e] * zesu_fs[e, t] for e in E, t in T)
+        + sum(start_up_cost[g] * betag_fs[g, t] for g in G, t in T)
+        # day-ahead hydrogen purchases minus sales
+        + sum(Hydrogencost[e] * baseKG * (hfgconsum_fs[e, t] - hfginyect_fs[e, t]) for e in E, t in T)
+        # procured FCR
+        + sum(Ereservecost[e] * r_proc_e_1[e, t] for e in E1, t in T) * baseMVA
+        + sum(Ereservecost[e] * r_proc_e_2[e, t] for e in E2, t in T) * baseMVA
+        + sum(Sreservecost[s] * r_proc_s_1[s, t] for s in S1, t in T) * baseMVA
+        + sum(Sreservecost[s] * r_proc_s_2[s, t] for s in S2, t in T) * baseMVA
+        + sum(G_reservecost[g] * r_proc_g_1[g, t] for g in G1, t in T) * baseMVA
+        + sum(G_reservecost[g] * r_proc_g_2[g, t] for g in G2, t in T) * baseMVA
+        # day-ahead load shedding
+        + sum((load_shed_1_fs[t] + load_shed_2_fs[t]) * VOLL for t in T) * baseMVA
+        # worst-case second-stage cost
+        + sigma
+        # small weight on the second-stage cost of every scenario (tie-breaker for the non-worst scenarios)
+        + ρ * sum(cost_ss_expr[w] for w in Wind_scenarios))
 
     
     keys_contingency = collect(keys(all_contingencies))
@@ -497,72 +585,92 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
 
 
 
-    #Reserve constraints generators
-# Reserve constraints generators, area 1
-    m.ext[:constraints][:r_proc_g_1_bound_lg] = @constraint(m, [g=G1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_g_1[g,t] >= rg_lg1_ss[g,t,k,w])
-    m.ext[:constraints][:r_proc_g_1_bound_lc] = @constraint(m, [g=G1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_g_1[g,t] >= rg_lc1_ss[g,t,k,w])
-    m.ext[:constraints][:r_proc_g_1_bound_lreserve] = @constraint(m, [g=G1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_g_1[g,t] >= rg_l_reserve_1_ss[g,t,k,w])
+    # Reserve constraints generators: procured reserve (first stage) must cover the reserve deployed in every contingency k and wind scenario w
 
-    # Reserve constraints generators, area 2
-    m.ext[:constraints][:r_proc_g_2_bound_lg] = @constraint(m, [g=G2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_g_2[g,t] >= rg_lg2_ss[g,t,k,w])
-    m.ext[:constraints][:r_proc_g_2_bound_lc] = @constraint(m, [g=G2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_g_2[g,t] >= rg_lc2_ss[g,t,k,w])
-    m.ext[:constraints][:r_proc_g_2_bound_lreserve] = @constraint(m, [g=G2, t=T, k=fallos, w=Wind_scenarios],
-    r_proc_g_2[g,t] >= rg_l_reserve_2_ss[g,t,k,w])
+        # Area 1
+        m.ext[:constraints][:r_proc_g_1_bound_lg] = @constraint(m, [g=G1, t=T, k=fallos_g1, w=Wind_scenarios],
+            r_proc_g_1[g,t] >= rg_lg1_ss[g,t,k,w])            # generator k of area 1 trips
+        m.ext[:constraints][:r_proc_g_1_bound_lc] = @constraint(m, [g=G1, t=T, k=fallos_c1, w=Wind_scenarios],
+            r_proc_g_1[g,t] >= rg_lc1_ss[g,t,k,w])            # converter k of area 1 trips
+        m.ext[:constraints][:r_proc_g_1_bound_lreserve_g] = @constraint(m, [g=G1, t=T, k=fallos_g2, w=Wind_scenarios],
+            r_proc_g_1[g,t] >= rg_l_reserve_1_g_ss[g,t,k,w])  # area 1 supports area 2 after generator k of area 2 trips
+        m.ext[:constraints][:r_proc_g_1_bound_lreserve_c] = @constraint(m, [g=G1, t=T, k=fallos_c2, w=Wind_scenarios],
+            r_proc_g_1[g,t] >= rg_l_reserve_1_c_ss[g,t,k,w])  # area 1 supports area 2 after converter k of area 2 trips
 
-    # Storage reserve constraints, area 1
-    m.ext[:constraints][:r_proc_s_1_bound_lg] = @constraint(m, [s=S1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_1[s,t] >= rs_lg1_ss[s,t,k,w])
-    m.ext[:constraints][:r_proc_s_1_bound_lc] = @constraint(m, [s=S1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_1[s,t] >= rs_lc1_ss[s,t,k,w])
-    m.ext[:constraints][:r_proc_s_1_bound_lreserve] = @constraint(m, [s=S1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_1[s,t] >= rs_l_reserve_1_ss[s,t,k,w])
+        # Area 2
+        m.ext[:constraints][:r_proc_g_2_bound_lg] = @constraint(m, [g=G2, t=T, k=fallos_g2, w=Wind_scenarios],
+            r_proc_g_2[g,t] >= rg_lg2_ss[g,t,k,w])            # generator k of area 2 trips
+        m.ext[:constraints][:r_proc_g_2_bound_lc] = @constraint(m, [g=G2, t=T, k=fallos_c2, w=Wind_scenarios],
+            r_proc_g_2[g,t] >= rg_lc2_ss[g,t,k,w])            # converter k of area 2 trips
+        m.ext[:constraints][:r_proc_g_2_bound_lreserve_g] = @constraint(m, [g=G2, t=T, k=fallos_g1, w=Wind_scenarios],
+            r_proc_g_2[g,t] >= rg_l_reserve_2_g_ss[g,t,k,w])  # area 2 supports area 1 after generator k of area 1 trips
+        m.ext[:constraints][:r_proc_g_2_bound_lreserve_c] = @constraint(m, [g=G2, t=T, k=fallos_c1, w=Wind_scenarios],
+            r_proc_g_2[g,t] >= rg_l_reserve_2_c_ss[g,t,k,w])  # area 2 supports area 1 after converter k of area 1 trips
 
-    # Storage reserve constraints, area 2
-    m.ext[:constraints][:r_proc_s_2_bound_lg] = @constraint(m, [s=S2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_2[s,t] >= rs_lg2_ss[s,t,k,w])
-    m.ext[:constraints][:r_proc_s_2_bound_lc] = @constraint(m, [s=S2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_2[s,t] >= rs_lc2_ss[s,t,k,w])
-    m.ext[:constraints][:r_proc_s_2_bound_lreserve] = @constraint(m, [s=S2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_s_2[s,t] >= rs_l_reserve_2_ss[s,t,k,w])
+    # Storage reserve constraints: procured reserve (first stage) must cover the reserve deployed in every contingency k and wind scenario w
 
-    # Electrolyzer reserve constraints, area 1
-    m.ext[:constraints][:r_proc_e_1_bound_lg] = @constraint(m, [e=E1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_e_1[e,t] >= re_lg1_ss[e,t,k,w])
-    m.ext[:constraints][:r_proc_e_1_bound_lc] = @constraint(m, [e=E1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_e_1[e,t] >= re_lc1_ss[e,t,k,w])
-    m.ext[:constraints][:r_proc_e_1_bound_lreserve] = @constraint(m, [e=E1, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_e_1[e,t] >= re_l_reserve_1_ss[e,t,k,w])
+    # Area 1
+    m.ext[:constraints][:r_proc_s_1_bound_lg] = @constraint(m, [s=S1, t=T, k=fallos_g1, w=Wind_scenarios],
+        r_proc_s_1[s,t] >= rs_lg1_ss[s,t,k,w])            # generator k of area 1 trips
+    m.ext[:constraints][:r_proc_s_1_bound_lc] = @constraint(m, [s=S1, t=T, k=fallos_c1, w=Wind_scenarios],
+        r_proc_s_1[s,t] >= rs_lc1_ss[s,t,k,w])            # converter k of area 1 trips
+    m.ext[:constraints][:r_proc_s_1_bound_lreserve_g] = @constraint(m, [s=S1, t=T, k=fallos_g2, w=Wind_scenarios],
+        r_proc_s_1[s,t] >= rs_l_reserve_1_g_ss[s,t,k,w])  # area 1 supports area 2 after generator k of area 2 trips
+    m.ext[:constraints][:r_proc_s_1_bound_lreserve_c] = @constraint(m, [s=S1, t=T, k=fallos_c2, w=Wind_scenarios],
+        r_proc_s_1[s,t] >= rs_l_reserve_1_c_ss[s,t,k,w])  # area 1 supports area 2 after converter k of area 2 trips
 
-    # Electrolyzer reserve constraints, area 2
-    m.ext[:constraints][:r_proc_e_2_bound_lg] = @constraint(m, [e=E2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_e_2[e,t] >= re_lg2_ss[e,t,k,w])
-    m.ext[:constraints][:r_proc_e_2_bound_lc] = @constraint(m, [e=E2, t=T, k=fallos, w=Wind_scenarios],
-        r_proc_e_2[e,t] >= re_lc2_ss[e,t,k,w])
-    m.ext[:constraints][:r_proc_e_2_bound_lreserve] = @constraint(m, [e=E2, t=T, k=fallos, w=Wind_scenarios],
-    r_proc_e_2[e,t] >= re_l_reserve_2_ss[e,t,k,w])
+    # Area 2
+    m.ext[:constraints][:r_proc_s_2_bound_lg] = @constraint(m, [s=S2, t=T, k=fallos_g2, w=Wind_scenarios],
+        r_proc_s_2[s,t] >= rs_lg2_ss[s,t,k,w])            # generator k of area 2 trips
+    m.ext[:constraints][:r_proc_s_2_bound_lc] = @constraint(m, [s=S2, t=T, k=fallos_c2, w=Wind_scenarios],
+        r_proc_s_2[s,t] >= rs_lc2_ss[s,t,k,w])            # converter k of area 2 trips
+    m.ext[:constraints][:r_proc_s_2_bound_lreserve_g] = @constraint(m, [s=S2, t=T, k=fallos_g1, w=Wind_scenarios],
+        r_proc_s_2[s,t] >= rs_l_reserve_2_g_ss[s,t,k,w])  # area 2 supports area 1 after generator k of area 1 trips
+    m.ext[:constraints][:r_proc_s_2_bound_lreserve_c] = @constraint(m, [s=S2, t=T, k=fallos_c1, w=Wind_scenarios],
+        r_proc_s_2[s,t] >= rs_l_reserve_2_c_ss[s,t,k,w])  # area 2 supports area 1 after converter k of area 1 trips
 
-    # Procured reserve must be deliverable on the actual operating point, in every wind realization
-    m.ext[:constraints][:headroom_rproc_g1_ss] = @constraint(m, [g=G1, t=T, k=fallos, w=Wind_scenarios],
-        pg_fs[g,t] + pg_ss_up[g,t,k,w] - pg_ss_dn[g,t,k,w] + r_proc_g_1[g,t] <= pmax[g] * zg_fs[g,t])
+    # Electrolyzer reserve constraints: procured reserve (first stage) must cover the reserve deployed in every contingency k and wind scenario w
 
-    m.ext[:constraints][:headroom_rproc_g2_ss] = @constraint(m, [g=G2, t=T, k=fallos, w=Wind_scenarios],
-        pg_fs[g,t] + pg_ss_up[g,t,k,w] - pg_ss_dn[g,t,k,w] + r_proc_g_2[g,t] <= pmax[g] * zg_fs[g,t])
+    # Area 1
+    m.ext[:constraints][:r_proc_e_1_bound_lg] = @constraint(m, [e=E1, t=T, k=fallos_g1, w=Wind_scenarios],
+        r_proc_e_1[e,t] >= re_lg1_ss[e,t,k,w])            # generator k of area 1 trips
+    m.ext[:constraints][:r_proc_e_1_bound_lc] = @constraint(m, [e=E1, t=T, k=fallos_c1, w=Wind_scenarios],
+        r_proc_e_1[e,t] >= re_lc1_ss[e,t,k,w])            # converter k of area 1 trips
+    m.ext[:constraints][:r_proc_e_1_bound_lreserve_g] = @constraint(m, [e=E1, t=T, k=fallos_g2, w=Wind_scenarios],
+        r_proc_e_1[e,t] >= re_l_reserve_1_g_ss[e,t,k,w])  # area 1 supports area 2 after generator k of area 2 trips
+    m.ext[:constraints][:r_proc_e_1_bound_lreserve_c] = @constraint(m, [e=E1, t=T, k=fallos_c2, w=Wind_scenarios],
+        r_proc_e_1[e,t] >= re_l_reserve_1_c_ss[e,t,k,w])  # area 1 supports area 2 after converter k of area 2 trips
 
-    # Generation: first-stage schedule + second-stage adjustment
-    m.ext[:constraints][:pg_fs_pg_ss_link] = @constraint(m, [g=G, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] == pg_fs[g,t] + pg_ss_up[g,t,k,w] - pg_ss_dn[g,t,k,w])
+    # Area 2
+    m.ext[:constraints][:r_proc_e_2_bound_lg] = @constraint(m, [e=E2, t=T, k=fallos_g2, w=Wind_scenarios],
+        r_proc_e_2[e,t] >= re_lg2_ss[e,t,k,w])            # generator k of area 2 trips
+    m.ext[:constraints][:r_proc_e_2_bound_lc] = @constraint(m, [e=E2, t=T, k=fallos_c2, w=Wind_scenarios],
+        r_proc_e_2[e,t] >= re_lc2_ss[e,t,k,w])            # converter k of area 2 trips
+    m.ext[:constraints][:r_proc_e_2_bound_lreserve_g] = @constraint(m, [e=E2, t=T, k=fallos_g1, w=Wind_scenarios],
+        r_proc_e_2[e,t] >= re_l_reserve_2_g_ss[e,t,k,w])  # area 2 supports area 1 after generator k of area 1 trips
+    m.ext[:constraints][:r_proc_e_2_bound_lreserve_c] = @constraint(m, [e=E2, t=T, k=fallos_c1, w=Wind_scenarios],
+        r_proc_e_2[e,t] >= re_l_reserve_2_c_ss[e,t,k,w])  # area 2 supports area 1 after converter k of area 1 trips
+
+
+
+
+        # Generation: first-stage schedule + second-stage adjustment (one actual dispatch per wind scenario w)
+        m.ext[:constraints][:pg_fs_pg_ss_link] = @constraint(m, [g=G, t=T, w=Wind_scenarios],
+            pg_ss[g,t,w] == pg_fs[g,t] + pg_ss_up[g,t,w] - pg_ss_dn[g,t,w])
+
+        # Procured reserve must be deliverable on the actual operating point, in every wind realization
+        m.ext[:constraints][:headroom_rproc_g1_ss] = @constraint(m, [g=G1, t=T, w=Wind_scenarios],
+            pg_ss[g,t,w] + r_proc_g_1[g,t] <= pmax[g] * zg_fs[g,t])
+
+        m.ext[:constraints][:headroom_rproc_g2_ss] = @constraint(m, [g=G2, t=T, w=Wind_scenarios],
+            pg_ss[g,t,w] + r_proc_g_2[g,t] <= pmax[g] * zg_fs[g,t])
 
 
 
 
 
 
-    # --- First stage: Power balance constraints (forecast wind) ---
+    # --- First stage: power balance of the day-ahead schedule (forecast wind) ---
     m.ext[:constraints][:power_balance_1_fs] = @constraint(m, [t=T],
         sum(pg_fs[g,t] for g in G1)
         - sum(p_charge_pump_fs[g,t] for g in G_pump_1)
@@ -581,100 +689,97 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
         - demand["2"][t] + load_shed_2_fs[t]
         + solar_roof_pmax["2"] * capacity_factor_solar["GB"][t] == 0)
 
-    # --- Second stage: power balance in each wind realization ---
-    m.ext[:constraints][:power_balance_1_ss] = @constraint(m, [t=T, k=fallos, w=Wind_scenarios],
-        sum(pg_ss[g,t,k,w] for g in G1)
-        - sum(p_charge_pump_ss[g,t,k,w] for g in G_pump_1)
-        + sum(conv_p_ac_ss[cv,t,k,w] for cv in CV1)
-        + sum(psd_ss[s,t,k,w] for s in S1) - sum(psc_ss[s,t,k,w] for s in S1)
-        - sum(pe_ss[e,t,k,w] for e in E1) - sum(pe_compressor_ss[e,t,k,w] for e in E1)
-        - demand["1"][t] + load_shed_1_ss[t,k,w]
+    # --- Second stage: power balance of the actual operation in each wind scenario w (pre-contingency, same dispatch for all k) ---
+    m.ext[:constraints][:power_balance_1_ss] = @constraint(m, [t=T, w=Wind_scenarios],
+        sum(pg_ss[g,t,w] for g in G1)
+        - sum(p_charge_pump_ss[g,t,w] for g in G_pump_1)
+        + sum(conv_p_ac_ss[cv,t,w] for cv in CV1)
+        + sum(psd_ss[s,t,w] for s in S1) - sum(psc_ss[s,t,w] for s in S1)
+        - sum(pe_ss[e,t,w] for e in E1) - sum(pe_compressor_ss[e,t,w] for e in E1)
+        - demand["1"][t] + load_shed_1_ss[t,w]
         + solar_roof_pmax["1"] * capacity_factor_solar["Nordic"][t] == 0)
 
-    m.ext[:constraints][:power_balance_2_ss] = @constraint(m, [t=T, k=fallos, w=Wind_scenarios],
-        sum(pg_ss[g,t,k,w] for g in G2)
-        - sum(p_charge_pump_ss[g,t,k,w] for g in G_pump_2)
-        + sum(conv_p_ac_ss[cv,t,k,w] for cv in CV2)
-        + sum(psd_ss[s,t,k,w] for s in S2) - sum(psc_ss[s,t,k,w] for s in S2)
-        - sum(pe_ss[e,t,k,w] for e in E2) - sum(pe_compressor_ss[e,t,k,w] for e in E2)
-        - demand["2"][t] + load_shed_2_ss[t,k,w]
+    m.ext[:constraints][:power_balance_2_ss] = @constraint(m, [t=T, w=Wind_scenarios],
+        sum(pg_ss[g,t,w] for g in G2)
+        - sum(p_charge_pump_ss[g,t,w] for g in G_pump_2)
+        + sum(conv_p_ac_ss[cv,t,w] for cv in CV2)
+        + sum(psd_ss[s,t,w] for s in S2) - sum(psc_ss[s,t,w] for s in S2)
+        - sum(pe_ss[e,t,w] for e in E2) - sum(pe_compressor_ss[e,t,w] for e in E2)
+        - demand["2"][t] + load_shed_2_ss[t,w]
         + solar_roof_pmax["2"] * capacity_factor_solar["GB"][t] == 0)
 
         
 
-    # --- First stage ---
+    # --- First stage: load shedding cannot exceed demand in the day-ahead schedule ---
     m.ext[:constraints][:load_shed_1_limit_fs] = @constraint(m, [t=T],
         load_shed_1_fs[t] <= demand["1"][t])
     m.ext[:constraints][:load_shed_2_limit_fs] = @constraint(m, [t=T],
         load_shed_2_fs[t] <= demand["2"][t])
 
-    # --- Second stage ---
-    m.ext[:constraints][:load_shed_1_limit_ss] = @constraint(m, [t=T, k=fallos, w=Wind_scenarios],
-        load_shed_1_ss[t,k,w] <= demand["1"][t])
-    m.ext[:constraints][:load_shed_2_limit_ss] = @constraint(m, [t=T, k=fallos, w=Wind_scenarios],
-        load_shed_2_ss[t,k,w] <= demand["2"][t])
+    # --- Second stage: load shedding cannot exceed demand in the actual operation of each wind scenario w ---
+    m.ext[:constraints][:load_shed_1_limit_ss] = @constraint(m, [t=T, w=Wind_scenarios],
+        load_shed_1_ss[t,w] <= demand["1"][t])
+    m.ext[:constraints][:load_shed_2_limit_ss] = @constraint(m, [t=T, w=Wind_scenarios],
+        load_shed_2_ss[t,w] <= demand["2"][t])
 
 
-        # Link first and second stage (HVDC flow adjustment)
-    m.ext[:constraints][:conv_p_ac_link] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] == conv_p_ac_fs[cv,t] + conv_p_ac_ss_up[cv,t,k,w] - conv_p_ac_ss_dn[cv,t,k,w])
 
-    # Reserve headroom (eq. 16), converters of area 1: loss of generation and loss of converter
-    m.ext[:constraints][:hvdc_headroom_lg1] = @constraint(m, [cv=CV1, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] + rhvdc_lg1_ss[cv,t,k,w] <= conv_p_ac_max[cv])
-    m.ext[:constraints][:hvdc_headroom_lc1] = @constraint(m, [cv=CV1, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] + rhvdc_lc1_ss[cv,t,k,w] <= conv_p_ac_max[cv])
+    # Reserve headroom (eq. 16): actual HVDC flow + HVDC reserve deployed after contingency k must stay within converter rating
+
+    # Area 1
+    m.ext[:constraints][:hvdc_headroom_lg1] = @constraint(m, [cv=CV1, t=T, k=fallos_g1, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] + rhvdc_lg1_ss[cv,t,k,w] <= conv_p_ac_max[cv])   # generator k of area 1 trips
+    m.ext[:constraints][:hvdc_headroom_lc1] = @constraint(m, [cv=CV1, t=T, k=fallos_c1, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] + rhvdc_lc1_ss[cv,t,k,w] <= conv_p_ac_max[cv])   # converter k of area 1 trips
 
     # Area 2
-    m.ext[:constraints][:hvdc_headroom_lg2] = @constraint(m, [cv=CV2, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] + rhvdc_lg2_ss[cv,t,k,w] <= conv_p_ac_max[cv])
-    m.ext[:constraints][:hvdc_headroom_lc2] = @constraint(m, [cv=CV2, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] + rhvdc_lc2_ss[cv,t,k,w] <= conv_p_ac_max[cv])
+    m.ext[:constraints][:hvdc_headroom_lg2] = @constraint(m, [cv=CV2, t=T, k=fallos_g2, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] + rhvdc_lg2_ss[cv,t,k,w] <= conv_p_ac_max[cv])   # generator k of area 2 trips
+    m.ext[:constraints][:hvdc_headroom_lc2] = @constraint(m, [cv=CV2, t=T, k=fallos_c2, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] + rhvdc_lc2_ss[cv,t,k,w] <= conv_p_ac_max[cv])   # converter k of area 2 trips
 
 
-    # Nodal power balance DC  taken from https://github.com/Electa-Git/OPES/blob/main/opf_acdc/build_ac_opf_acdc_tap.jl line 431
-
-    # ============================== FIRST STAGE ==============================
+       # ============================== FIRST STAGE (day-ahead schedule) ==============================
     m.ext[:constraints][:nodal_p_dc_balance_fs] = @constraint(m, [nd=ND, t=T],
         sum(conv_p_dc_fs[cv,t] for cv in CV if conv_busdc[cv] == nd)
-        - sum(brdc_p_fs[(d,f,e),t] for (d,f,e) in ND_arcs[nd]) == 0)   # 3.14
+        - sum(brdc_p_fs[(d,f,e),t] for (d,f,e) in ND_arcs[nd]) == 0)   # 3.14 DC nodal balance
 
     m.ext[:constraints][:conv_p_loss_fs] = @constraint(m, [cv=CV, t=T],
-        conv_p_ac_fs[cv,t] + conv_p_dc_fs[cv,t] == 0)   # 3.17
+        conv_p_ac_fs[cv,t] + conv_p_dc_fs[cv,t] == 0)   # 3.17 lossless converter: AC side = - DC side
 
     m.ext[:constraints][:conv_injec_ac_abs_inj_fs] = @constraint(m, [cv=CV, t=T],
-        conv_p_ac_fs[cv,t] == conv_p_ac_inj_fs[cv,t] - conv_p_ac_abs_fs[cv,t])
+        conv_p_ac_fs[cv,t] == conv_p_ac_inj_fs[cv,t] - conv_p_ac_abs_fs[cv,t])   # injection (+) minus absorption (-)
 
     m.ext[:constraints][:direccional_flow_dc_fs] = @constraint(m, [(d,f,e)=BD_dc_fr, t=T],
-        brdc_p_fs[(d,f,e),t] == -brdc_p_fs[(d,e,f),t])
+        brdc_p_fs[(d,f,e),t] == -brdc_p_fs[(d,e,f),t])   # DC branch flow: from-to = - to-from
 
     m.ext[:constraints][:conv_injec_ac_limit_fs] = @constraint(m, [cv=CV, t=T],
-        conv_p_ac_inj_fs[cv,t] <= conv_p_ac_max[cv] * u_conv_p_ac_fs[cv,t])
+        conv_p_ac_inj_fs[cv,t] <= conv_p_ac_max[cv] * u_conv_p_ac_fs[cv,t])        # injection only if u = 1
     m.ext[:constraints][:conv_abs_limit_fs] = @constraint(m, [cv=CV, t=T],
-        conv_p_ac_abs_fs[cv,t] <= conv_p_ac_max[cv] * (1 - u_conv_p_ac_fs[cv,t]))
+        conv_p_ac_abs_fs[cv,t] <= conv_p_ac_max[cv] * (1 - u_conv_p_ac_fs[cv,t]))  # absorption only if u = 0
 
-    # ============================== SECOND STAGE =============================
-    m.ext[:constraints][:nodal_p_dc_balance_ss] = @constraint(m, [nd=ND, t=T, k=fallos, w=Wind_scenarios],
-        sum(conv_p_dc_ss[cv,t,k,w] for cv in CV if conv_busdc[cv] == nd)
-        - sum(brdc_p_ss[(d,f,e),t,k,w] for (d,f,e) in ND_arcs[nd]) == 0)   # 3.14
+    # ============================== SECOND STAGE (actual operation in each wind scenario w) =============================
+    m.ext[:constraints][:nodal_p_dc_balance_ss] = @constraint(m, [nd=ND, t=T, w=Wind_scenarios],
+        sum(conv_p_dc_ss[cv,t,w] for cv in CV if conv_busdc[cv] == nd)
+        - sum(brdc_p_ss[(d,f,e),t,w] for (d,f,e) in ND_arcs[nd]) == 0)   # 3.14 DC nodal balance
 
-    m.ext[:constraints][:conv_p_loss_ss] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] + conv_p_dc_ss[cv,t,k,w] == 0)   # 3.17
+    m.ext[:constraints][:conv_p_loss_ss] = @constraint(m, [cv=CV, t=T, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] + conv_p_dc_ss[cv,t,w] == 0)   # 3.17 lossless converter
 
-    m.ext[:constraints][:conv_injec_ac_abs_inj_ss] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] == conv_p_ac_inj_ss[cv,t,k,w] - conv_p_ac_abs_ss[cv,t,k,w])
+    m.ext[:constraints][:conv_injec_ac_abs_inj_ss] = @constraint(m, [cv=CV, t=T, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] == conv_p_ac_inj_ss[cv,t,w] - conv_p_ac_abs_ss[cv,t,w])   # injection (+) minus absorption (-)
 
-    m.ext[:constraints][:direccional_flow_dc_ss] = @constraint(m, [(d,f,e)=BD_dc_fr, t=T, k=fallos, w=Wind_scenarios],
-        brdc_p_ss[(d,f,e),t,k,w] == -brdc_p_ss[(d,e,f),t,k,w])
+    m.ext[:constraints][:direccional_flow_dc_ss] = @constraint(m, [(d,f,e)=BD_dc_fr, t=T, w=Wind_scenarios],
+        brdc_p_ss[(d,f,e),t,w] == -brdc_p_ss[(d,e,f),t,w])   # DC branch flow: from-to = - to-from
 
-    m.ext[:constraints][:conv_injec_ac_limit_ss] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_inj_ss[cv,t,k,w] <= conv_p_ac_max[cv] * u_conv_p_ac_ss[cv,t,k,w])
-    m.ext[:constraints][:conv_abs_limit_ss] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_abs_ss[cv,t,k,w] <= conv_p_ac_max[cv] * (1 - u_conv_p_ac_ss[cv,t,k,w]))
+    m.ext[:constraints][:conv_injec_ac_limit_ss] = @constraint(m, [cv=CV, t=T, w=Wind_scenarios],
+        conv_p_ac_inj_ss[cv,t,w] <= conv_p_ac_max[cv] * u_conv_p_ac_ss[cv,t,w])        # injection only if u = 1
+    m.ext[:constraints][:conv_abs_limit_ss] = @constraint(m, [cv=CV, t=T, w=Wind_scenarios],
+        conv_p_ac_abs_ss[cv,t,w] <= conv_p_ac_max[cv] * (1 - u_conv_p_ac_ss[cv,t,w]))  # absorption only if u = 0
 
     # ============================ LINK BETWEEN STAGES ========================
-    m.ext[:constraints][:conv_p_ac_link] = @constraint(m, [cv=CV, t=T, k=fallos, w=Wind_scenarios],
-        conv_p_ac_ss[cv,t,k,w] == conv_p_ac_fs[cv,t] + conv_p_ac_ss_up[cv,t,k,w] - conv_p_ac_ss_dn[cv,t,k,w])
+    m.ext[:constraints][:conv_p_ac_link] = @constraint(m, [cv=CV, t=T, w=Wind_scenarios],
+        conv_p_ac_ss[cv,t,w] == conv_p_ac_fs[cv,t] + conv_p_ac_ss_up[cv,t,w] - conv_p_ac_ss_dn[cv,t,w])   # actual flow = schedule + up - down
 
             # ======================= Solar generation limits =======================
     # Solar is deterministic: the same capacity factor applies in both stages
@@ -685,11 +790,11 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     m.ext[:constraints][:solar_generation_2_fs] = @constraint(m, [g=G_solar_2, t=T],
         pg_fs[g,t] <= capacity_factor_solar["GB"][t] * pmax[g])       # area 2 (GB)
 
-    # Second stage: actual operation in each wind realization
-    m.ext[:constraints][:solar_generation_1_ss] = @constraint(m, [g=G_solar_1, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] <= capacity_factor_solar["Nordic"][t] * pmax[g])   # area 1 (Nordic)
-    m.ext[:constraints][:solar_generation_2_ss] = @constraint(m, [g=G_solar_2, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] <= capacity_factor_solar["GB"][t] * pmax[g])       # area 2 (GB)
+    # Second stage: actual operation in each wind scenario w
+    m.ext[:constraints][:solar_generation_1_ss] = @constraint(m, [g=G_solar_1, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] <= capacity_factor_solar["Nordic"][t] * pmax[g])   # area 1 (Nordic)
+    m.ext[:constraints][:solar_generation_2_ss] = @constraint(m, [g=G_solar_2, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] <= capacity_factor_solar["GB"][t] * pmax[g])       # area 2 (GB)
 
     # ======================= Wind generation limits ========================
 
@@ -699,43 +804,26 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     m.ext[:constraints][:wind_generation_2_fs] = @constraint(m, [g=G_wind_2, t=T],
         pg_fs[g,t] <= capacity_factor_wind["GB"][t] * pmax[g])       # area 2 (GB)
 
-    # Second stage: the actual wind output cannot exceed the availability of each realization (high or low)
-    m.ext[:constraints][:wind_generation_1_ss] = @constraint(m, [g=G_wind_1, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] <= capacity_factor_wind_w["Nordic"][t][w] * pmax[g])   # area 1 (Nordic)
-    m.ext[:constraints][:wind_generation_2_ss] = @constraint(m, [g=G_wind_2, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] <= capacity_factor_wind_w["GB"][t][w] * pmax[g])       # area 2 (GB)
+    # Second stage: the actual wind output cannot exceed the availability of each scenario w (high or low)
+    m.ext[:constraints][:wind_generation_1_ss] = @constraint(m, [g=G_wind_1, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] <= capacity_factor_wind_w["Nordic"][t][w] * pmax[g])   # area 1 (Nordic)
+    m.ext[:constraints][:wind_generation_2_ss] = @constraint(m, [g=G_wind_2, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] <= capacity_factor_wind_w["GB"][t][w] * pmax[g])       # area 2 (GB)
 
   
 
 
    
-
     # Renewable frequency reserve constraints: renewables do not provide FCR
     renewable_1 = vcat(G_solar_1, G_wind_1)
     renewable_2 = vcat(G_solar_2, G_wind_2)
 
-    # Second stage: no reserve from renewables in any contingency or wind realization (area 1)
-    m.ext[:constraints][:renewable_reserve_rg_lg1] = @constraint(m, [g=renewable_1, t=T, k=fallos, w=Wind_scenarios],
-        rg_lg1_ss[g,t,k,w] == 0)
-    m.ext[:constraints][:renewable_reserve_rg_lc1] = @constraint(m, [g=renewable_1, t=T, k=fallos, w=Wind_scenarios],
-        rg_lc1_ss[g,t,k,w] == 0)
-    m.ext[:constraints][:renewable_reserve_l_reserve_1] = @constraint(m, [g=renewable_1, t=T, k=fallos, w=Wind_scenarios],
-        rg_l_reserve_1_ss[g,t,k,w] == 0)
-
-    # Area 2
-    m.ext[:constraints][:renewable_reserve_rg_lg2] = @constraint(m, [g=renewable_2, t=T, k=fallos, w=Wind_scenarios],
-        rg_lg2_ss[g,t,k,w] == 0)
-    m.ext[:constraints][:renewable_reserve_rg_lc2] = @constraint(m, [g=renewable_2, t=T, k=fallos, w=Wind_scenarios],
-        rg_lc2_ss[g,t,k,w] == 0)
-    m.ext[:constraints][:renewable_reserve_l_reserve_2] = @constraint(m, [g=renewable_2, t=T, k=fallos, w=Wind_scenarios],
-        rg_l_reserve_2_ss[g,t,k,w] == 0)
-
-    # First stage: no procured reserve from renewables
+    # No procured reserve from renewables (first stage).
+    # Since r_proc_g >= rg_*_ss >= 0 for every k and w, this also forces all their deployed reserves (second stage) to zero.
     m.ext[:constraints][:renewable_r_proc_1] = @constraint(m, [g=renewable_1, t=T],
         r_proc_g_1[g,t] == 0)
     m.ext[:constraints][:renewable_r_proc_2] = @constraint(m, [g=renewable_2, t=T],
         r_proc_g_2[g,t] == 0)
-
 
 
         
@@ -754,19 +842,19 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     m.ext[:constraints][:min_gen_power_fs] = @constraint(m, [g=G, t=T],
         pg_fs[g,t] >= pmin[g] * zg_fs[g,t])
 
-    # Second stage: actual output within the unit limits, in every wind realization
-    m.ext[:constraints][:max_gen_power_ss] = @constraint(m, [g=G, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] <= pmax[g] * zg_fs[g,t])
-    m.ext[:constraints][:min_gen_power_ss] = @constraint(m, [g=G, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] >= pmin[g] * zg_fs[g,t])
+    # Second stage: actual output within the unit limits in every wind scenario w (commitment fixed day-ahead)
+    m.ext[:constraints][:max_gen_power_ss] = @constraint(m, [g=G, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] <= pmax[g] * zg_fs[g,t])
+    m.ext[:constraints][:min_gen_power_ss] = @constraint(m, [g=G, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] >= pmin[g] * zg_fs[g,t])
 
     # ===================== Reserve headroom =====================
 
-    # Second stage: the procured reserve must be deliverable on the actual operating point
-    m.ext[:constraints][:headroom_rproc_g1_ss] = @constraint(m, [g=G1, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] + r_proc_g_1[g,t] <= pmax[g] * zg_fs[g,t])   # area 1
-    m.ext[:constraints][:headroom_rproc_g2_ss] = @constraint(m, [g=G2, t=T, k=fallos, w=Wind_scenarios],
-        pg_ss[g,t,k,w] + r_proc_g_2[g,t] <= pmax[g] * zg_fs[g,t])   # area 2
+    # Second stage: the procured reserve must be deliverable on the actual operating point of each wind scenario w
+    m.ext[:constraints][:headroom_rproc_g1_ss] = @constraint(m, [g=G1, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] + r_proc_g_1[g,t] <= pmax[g] * zg_fs[g,t])   # area 1
+    m.ext[:constraints][:headroom_rproc_g2_ss] = @constraint(m, [g=G2, t=T, w=Wind_scenarios],
+        pg_ss[g,t,w] + r_proc_g_2[g,t] <= pmax[g] * zg_fs[g,t])   # area 2
 
     # First stage (optional): the day-ahead schedule also leaves room for the procured reserve
     m.ext[:constraints][:headroom_rproc_g1_fs] = @constraint(m, [g=G1, t=T],
@@ -779,9 +867,10 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # =====================================================================
     # First stage : commitment logic (status, start-ups, shut-downs, minimum
     #               up/down times) and ramp limits on the day-ahead schedule pg_fs.
-    # Second stage: ramp limits on the actual output pg_ss in every contingency k
-    #               and wind realization w. The commitment is NOT repeated: start-ups
-    #               and shut-downs are first-stage decisions, the same in all scenarios.
+    # Second stage: ramp limits on the actual output pg_ss in every wind scenario w.
+    #               The commitment is NOT repeated: start-ups and shut-downs are
+    #               first-stage decisions, the same in all scenarios. The actual output
+    #               does not depend on the contingency k (preventive N-1 dispatch).
 
     Tlabels = collect(T)         # ensure indexable by position
     NT = length(Tlabels)
@@ -804,25 +893,25 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
         pg_fs[g, Tlabels[i]] - pg_fs[g, Tlabels[i-1]] <= upramp[g] + (pmin[g] - upramp[g]) * betag_fs[g, Tlabels[i]])   # 3.19
 
     # ---------------------------------------------------------------------
-    #          RAMP LIMITS: SECOND STAGE (actual output in each realization)
+    #          RAMP LIMITS: SECOND STAGE (actual output in each wind scenario)
     # ---------------------------------------------------------------------
-    # Once the wind realization (high or low) is revealed, each generator follows an
+    # Once the wind scenario (high or low) is revealed, each generator follows an
     # actual 24-hour trajectory pg_ss, which must also respect the ramp rates.
-    # Indices: i = time index, k = contingency, w = wind realization.
+    # Indices: i = time index, w = wind scenario.
     # Start-ups (betag_fs) and shut-downs (gammag_fs) come from the first stage.
 
     # Ramp-down limit on the actual output
-    m.ext[:constraints][:ramp_down_ss] = @constraint(m, [g in TG, i in 2:NT, k in fallos, w in Wind_scenarios],
-        pg_ss[g, Tlabels[i-1], k, w] - pg_ss[g, Tlabels[i], k, w] <= downramp[g] + pmin[g] * gammag_fs[g, Tlabels[i]])   # 3.20
+    m.ext[:constraints][:ramp_down_ss] = @constraint(m, [g in TG, i in 2:NT, w in Wind_scenarios],
+        pg_ss[g, Tlabels[i-1], w] - pg_ss[g, Tlabels[i], w] <= downramp[g] + pmin[g] * gammag_fs[g, Tlabels[i]])   # 3.20
 
     # Ramp-up limit on the actual output
-    m.ext[:constraints][:ramp_up_ss] = @constraint(m, [g in TG, i in 2:NT, k in fallos, w in Wind_scenarios],
-        pg_ss[g, Tlabels[i], k, w] - pg_ss[g, Tlabels[i-1], k, w] <= upramp[g] + (pmin[g] - upramp[g]) * betag_fs[g, Tlabels[i]])   # 3.19
+    m.ext[:constraints][:ramp_up_ss] = @constraint(m, [g in TG, i in 2:NT, w in Wind_scenarios],
+        pg_ss[g, Tlabels[i], w] - pg_ss[g, Tlabels[i-1], w] <= upramp[g] + (pmin[g] - upramp[g]) * betag_fs[g, Tlabels[i]])   # 3.19
 
     # Note: within each hour, the deviation of the actual output from the schedule is
     # limited by the bounds of the adjustment variables (in the variable definitions):
-    #   0 <= pg_ss_up[g,t,k,w] <= upramp[g],   0 <= pg_ss_dn[g,t,k,w] <= downramp[g]
-    # together with the link: pg_ss[g,t,k,w] == pg_fs[g,t] + pg_ss_up[g,t,k,w] - pg_ss_dn[g,t,k,w]
+    #   0 <= pg_ss_up[g,t,w] <= upramp[g],   0 <= pg_ss_dn[g,t,w] <= downramp[g]
+    # together with the link: pg_ss[g,t,w] == pg_fs[g,t] + pg_ss_up[g,t,w] - pg_ss_dn[g,t,w]
 
     # ---------------------------------------------------------------------
     #                 COMMITMENT LOGIC: FIRST STAGE ONLY
@@ -866,13 +955,14 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
         end
     end
 
-    # =====================================================================
+      # =====================================================================
     #                         STORAGE CONSTRAINTS
     # =====================================================================
     # First stage : battery schedule in the day-ahead plan (psc_fs, psd_fs, es_fs, zs_fs).
-    # Second stage: actual battery operation in every contingency k and wind realization w
+    # Second stage: actual battery operation in every wind scenario w
     #               (psc_ss, psd_ss, es_ss, zs_ss). The charging/discharging status zs can
     #               change between stages, so each stage has its own binary.
+    #               The operation does not depend on the contingency k (preventive N-1 dispatch).
 
     # ---------------------------------------------------------------------
     #                            FIRST STAGE
@@ -903,26 +993,26 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # ---------------------------------------------------------------------
     #                            SECOND STAGE
     # ---------------------------------------------------------------------
-    # Same constraints on the actual battery operation, for every contingency k and
-    # wind realization w. Each realization must also start and end with the required energy.
+    # Same constraints on the actual battery operation, for every wind scenario w.
+    # Each scenario must also start and end with the required energy.
 
-    m.ext[:constraints][:upper_bound_storage_charging_ss] = @constraint(m, [s=S, t=T, k=fallos, w=Wind_scenarios],
-        psc_ss[s,t,k,w] <= Spmax[s] * (1 - zs_ss[s,t,k,w]))   # 3.25
+    m.ext[:constraints][:upper_bound_storage_charging_ss] = @constraint(m, [s=S, t=T, w=Wind_scenarios],
+        psc_ss[s,t,w] <= Spmax[s] * (1 - zs_ss[s,t,w]))   # 3.25
 
-    m.ext[:constraints][:upper_bound_storage_discharging_ss] = @constraint(m, [s=S, t=T, k=fallos, w=Wind_scenarios],
-        psd_ss[s,t,k,w] <= Spmax[s] * zs_ss[s,t,k,w])   # 3.26
+    m.ext[:constraints][:upper_bound_storage_discharging_ss] = @constraint(m, [s=S, t=T, w=Wind_scenarios],
+        psd_ss[s,t,w] <= Spmax[s] * zs_ss[s,t,w])   # 3.26
 
-    m.ext[:constraints][:initial_energy_value_ss] = @constraint(m, [s in S, k in fallos, w in Wind_scenarios],
-        es_ss[s, Tlabels[1], k, w] == Senergyinitial[s])   # 3.27
+    m.ext[:constraints][:initial_energy_value_ss] = @constraint(m, [s in S, w in Wind_scenarios],
+        es_ss[s, Tlabels[1], w] == Senergyinitial[s])   # 3.27
 
-    m.ext[:constraints][:end_energy_value_ss] = @constraint(m, [s in S, k in fallos, w in Wind_scenarios],
-        Senergyend[s] - es_ss[s, Tlabels[NT], k, w] ==
-            Sefficiencycarga[s] * psc_ss[s, Tlabels[NT], k, w] - psd_ss[s, Tlabels[NT], k, w] / Sefficiencydischarge[s])   # 3.27
+    m.ext[:constraints][:end_energy_value_ss] = @constraint(m, [s in S, w in Wind_scenarios],
+        Senergyend[s] - es_ss[s, Tlabels[NT], w] ==
+            Sefficiencycarga[s] * psc_ss[s, Tlabels[NT], w] - psd_ss[s, Tlabels[NT], w] / Sefficiencydischarge[s])   # 3.27
 
-    # i = time index, k = contingency index
-    m.ext[:constraints][:energy_balance_ss] = @constraint(m, [s in S, i in 1:NT-1, k in fallos, w in Wind_scenarios],
-        es_ss[s, Tlabels[i+1], k, w] - es_ss[s, Tlabels[i], k, w] ==
-            Sefficiencycarga[s] * psc_ss[s, Tlabels[i], k, w] - psd_ss[s, Tlabels[i], k, w] / Sefficiencydischarge[s])   # 3.27
+    # i = time index, w = wind scenario
+    m.ext[:constraints][:energy_balance_ss] = @constraint(m, [s in S, i in 1:NT-1, w in Wind_scenarios],
+        es_ss[s, Tlabels[i+1], w] - es_ss[s, Tlabels[i], w] ==
+            Sefficiencycarga[s] * psc_ss[s, Tlabels[i], w] - psd_ss[s, Tlabels[i], w] / Sefficiencydischarge[s])   # 3.27
 
     # ---------------------------------------------------------------------
     #                       LINK BETWEEN STAGES
@@ -930,11 +1020,11 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # The actual charging/discharging power equals the schedule plus the adjustment.
     # The energy and the status are not linked: they follow from the powers in each stage.
 
-    m.ext[:constraints][:psc_link] = @constraint(m, [s=S, t=T, k=fallos, w=Wind_scenarios],
-        psc_ss[s,t,k,w] == psc_fs[s,t] + psc_ss_up[s,t,k,w] - psc_ss_dn[s,t,k,w])
+    m.ext[:constraints][:psc_link] = @constraint(m, [s=S, t=T, w=Wind_scenarios],
+        psc_ss[s,t,w] == psc_fs[s,t] + psc_ss_up[s,t,w] - psc_ss_dn[s,t,w])
 
-    m.ext[:constraints][:psd_link] = @constraint(m, [s=S, t=T, k=fallos, w=Wind_scenarios],
-        psd_ss[s,t,k,w] == psd_fs[s,t] + psd_ss_up[s,t,k,w] - psd_ss_dn[s,t,k,w])
+    m.ext[:constraints][:psd_link] = @constraint(m, [s=S, t=T, w=Wind_scenarios],
+        psd_ss[s,t,w] == psd_fs[s,t] + psd_ss_up[s,t,w] - psd_ss_dn[s,t,w])
 
 
 
@@ -942,9 +1032,10 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     #                 RESERVOIR AND PUMPED-STORAGE CONSTRAINTS
     # =====================================================================
     # First stage : schedule of reservoirs and pumped-storage units (e_*_fs, pg_fs, p_charge_pump_fs).
-    # Second stage: actual operation in every contingency k and wind realization w (e_*_ss, pg_ss, p_charge_pump_ss).
+    # Second stage: actual operation in every wind scenario w (e_*_ss, pg_ss, p_charge_pump_ss).
+    #               The operation does not depend on the contingency k (preventive N-1 dispatch).
     # The operating mode (generating or pumping) is given by the first-stage commitment zg_fs.
-    # Index i = time index (position in Tlabels); k = contingency index.
+    # Index i = time index (position in Tlabels); w = wind scenario.
 
     # ---------------------------------------------------------------------
     #                       RESERVOIRS: FIRST STAGE
@@ -965,17 +1056,18 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # ---------------------------------------------------------------------
     #                       RESERVOIRS: SECOND STAGE
     # ---------------------------------------------------------------------
+    # Same constraints on the actual reservoir operation, one trajectory per wind scenario w.
 
-    m.ext[:constraints][:initial_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, k in fallos, w in Wind_scenarios],
-        e_reservoir_ss[g, Tlabels[1], k, w] == E_reservoirs_ini[g])
+    m.ext[:constraints][:initial_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, w in Wind_scenarios],
+        e_reservoir_ss[g, Tlabels[1], w] == E_reservoirs_ini[g])
 
-    m.ext[:constraints][:end_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, k in fallos, w in Wind_scenarios],
-        E_reservoirs_end[g] <= e_reservoir_ss[g, Tlabels[NT], k, w] - pg_ss[g, Tlabels[NT], k, w] / G_ngenerating[g])
+    m.ext[:constraints][:end_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, w in Wind_scenarios],
+        E_reservoirs_end[g] <= e_reservoir_ss[g, Tlabels[NT], w] - pg_ss[g, Tlabels[NT], w] / G_ngenerating[g])
 
-    m.ext[:constraints][:transition_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, i in 1:NT-1, k in fallos, w in Wind_scenarios],
-        e_reservoir_ss[g, Tlabels[i+1], k, w] == e_reservoir_ss[g, Tlabels[i], k, w] - pg_ss[g, Tlabels[i], k, w] / G_ngenerating[g])
+    m.ext[:constraints][:transition_energy_value_reservoir_ss] = @constraint(m, [g in G_reservoir, i in 1:NT-1, w in Wind_scenarios],
+        e_reservoir_ss[g, Tlabels[i+1], w] == e_reservoir_ss[g, Tlabels[i], w] - pg_ss[g, Tlabels[i], w] / G_ngenerating[g])
 
-    # ---------------------------------------------------------------------
+       # ---------------------------------------------------------------------
     #                    PUMPED STORAGE: FIRST STAGE
     # ---------------------------------------------------------------------
     # -P_pump is used because the pumping power is given as a negative value in the input data.
@@ -1005,23 +1097,25 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # ---------------------------------------------------------------------
     #                    PUMPED STORAGE: SECOND STAGE
     # ---------------------------------------------------------------------
+    # Same constraints on the actual operation, one trajectory per wind scenario w.
+    # The mode (pumping or generating) is fixed by the first-stage commitment zg_fs.
 
-    m.ext[:constraints][:upper_bound_pump_charging_ss] = @constraint(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios],
-        p_charge_pump_ss[g,t,k,w] <= (-P_pump[g]) * (1 - zg_fs[g,t]))
+    m.ext[:constraints][:upper_bound_pump_charging_ss] = @constraint(m, [g=G_pump, t=T, w=Wind_scenarios],
+        p_charge_pump_ss[g,t,w] <= (-P_pump[g]) * (1 - zg_fs[g,t]))
 
-    m.ext[:constraints][:lower_bound_pump_charging_ss] = @constraint(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios],
-        p_charge_pump_ss[g,t,k,w] >= 0.1 * (-P_pump[g]) * (1 - zg_fs[g,t]))
+    m.ext[:constraints][:lower_bound_pump_charging_ss] = @constraint(m, [g=G_pump, t=T, w=Wind_scenarios],
+        p_charge_pump_ss[g,t,w] >= 0.1 * (-P_pump[g]) * (1 - zg_fs[g,t]))
 
-    m.ext[:constraints][:initial_energy_value_pump_ss] = @constraint(m, [g in G_pump, k in fallos, w in Wind_scenarios],
-        e_pump_ss[g, Tlabels[1], k, w] == E_reservoirs_ini[g])
+    m.ext[:constraints][:initial_energy_value_pump_ss] = @constraint(m, [g in G_pump, w in Wind_scenarios],
+        e_pump_ss[g, Tlabels[1], w] == E_reservoirs_ini[g])
 
-    m.ext[:constraints][:end_energy_value_pump_ss] = @constraint(m, [g in G_pump, k in fallos, w in Wind_scenarios],
-        E_reservoirs_end[g] == e_pump_ss[g, Tlabels[NT], k, w]
-            + p_charge_pump_ss[g, Tlabels[NT], k, w] * G_npumping[g] - pg_ss[g, Tlabels[NT], k, w] / G_ngenerating[g])
+    m.ext[:constraints][:end_energy_value_pump_ss] = @constraint(m, [g in G_pump, w in Wind_scenarios],
+        E_reservoirs_end[g] == e_pump_ss[g, Tlabels[NT], w]
+            + p_charge_pump_ss[g, Tlabels[NT], w] * G_npumping[g] - pg_ss[g, Tlabels[NT], w] / G_ngenerating[g])
 
-    m.ext[:constraints][:energy_balance_pump_ss] = @constraint(m, [g in G_pump, i in 1:NT-1, k in fallos, w in Wind_scenarios],
-        e_pump_ss[g, Tlabels[i+1], k, w] == e_pump_ss[g, Tlabels[i], k, w]
-            + p_charge_pump_ss[g, Tlabels[i], k, w] * G_npumping[g] - pg_ss[g, Tlabels[i], k, w] / G_ngenerating[g])
+    m.ext[:constraints][:energy_balance_pump_ss] = @constraint(m, [g in G_pump, i in 1:NT-1, w in Wind_scenarios],
+        e_pump_ss[g, Tlabels[i+1], w] == e_pump_ss[g, Tlabels[i], w]
+            + p_charge_pump_ss[g, Tlabels[i], w] * G_npumping[g] - pg_ss[g, Tlabels[i], w] / G_ngenerating[g])
 
     # ---------------------------------------------------------------------
     #                       LINK BETWEEN STAGES
@@ -1029,35 +1123,36 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # The actual pumping power equals the schedule plus the adjustment.
     # The generating side is already linked through pg_ss = pg_fs + pg_ss_up - pg_ss_dn.
 
-    m.ext[:constraints][:p_charge_pump_link] = @constraint(m, [g=G_pump, t=T, k=fallos, w=Wind_scenarios],
-        p_charge_pump_ss[g,t,k,w] == p_charge_pump_fs[g,t] + p_charge_pump_ss_up[g,t,k,w] - p_charge_pump_ss_dn[g,t,k,w])
+    m.ext[:constraints][:p_charge_pump_link] = @constraint(m, [g=G_pump, t=T, w=Wind_scenarios],
+        p_charge_pump_ss[g,t,w] == p_charge_pump_fs[g,t] + p_charge_pump_ss_up[g,t,w] - p_charge_pump_ss_dn[g,t,w])
 
-    # =====================================================================
+        
+
+
+          # =====================================================================
     #                       ELECTROLYZER CONSTRAINTS
     # =====================================================================
     # First stage : on/off, start-up and standby status (ze_fs, zesu_fs, zestb_fs), and the
     #               day-ahead schedule of power, hydrogen production, trade and storage.
-    # Second stage: actual power, production, trade and storage in every contingency k and
-    #               wind realization w. The status variables come from the first stage.
-    # Index i = time index (position in Tlabels); k = contingency index.
+    # Second stage: actual power, production, trade and storage in every wind scenario w.
+    #               The status variables come from the first stage.
 
     # ---------------------------------------------------------------------
-    #                  STATUS LOGIC: FIRST STAGE ONLY
+    #                  STATUS LOGIC ELECTROLYZER: FIRST STAGE ONLY
     # ---------------------------------------------------------------------
 
-    # Start-up at the first hour: counted if the unit is on or in standby at hour 1
+    # Start-up at the first hour (initial state assumed: on = 1, standby = 0)
     m.ext[:constraints][:e_status_ini] = @constraint(m, [e in E],
         zesu_fs[e, Tlabels[1]] >= (ze_fs[e, Tlabels[1]] - 1) + (zestb_fs[e, Tlabels[1]] - 0))
 
-    # Start-up in subsequent hours: counted when the unit switches on or into standby
+    # Start-up in subsequent hours: counted when the unit switches on or into standby (eq. 38)
     m.ext[:constraints][:e_status_subsequent] = @constraint(m, [e in E, i in 2:NT],
         zesu_fs[e, Tlabels[i]] >= (ze_fs[e, Tlabels[i]] - ze_fs[e, Tlabels[i-1]]) +
                                 (zestb_fs[e, Tlabels[i]] - zestb_fs[e, Tlabels[i-1]]))
 
-    # The electrolyzer cannot be on and in standby at the same time
+    # The electrolyzer cannot be on and in standby at the same time (eq. 37)
     m.ext[:constraints][:e_standby] = @constraint(m, [e=E, t=T],
         zestb_fs[e,t] + ze_fs[e,t] <= 1)
-
     # ---------------------------------------------------------------------
     #                            FIRST STAGE
     # ---------------------------------------------------------------------
@@ -1097,33 +1192,34 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # ---------------------------------------------------------------------
     #                            SECOND STAGE
     # ---------------------------------------------------------------------
-    # Same constraints on the actual operation, with the first-stage status variables.
+    # Same constraints on the actual operation, one trajectory per wind scenario w,
+    # with the first-stage status variables.
 
-    m.ext[:constraints][:hydrogen_production_ss] = @constraint(m, [e in E, t in T, k in fallos, w in Wind_scenarios],
-        hfe_ss[e,t,k,w] == pe_ss[e,t,k,w] / Eefficiency[e] - 0.05 * Epmax[e] * zestb_fs[e,t] / Eefficiency[e])
+    m.ext[:constraints][:hydrogen_production_ss] = @constraint(m, [e in E, t in T, w in Wind_scenarios],
+        hfe_ss[e,t,w] == pe_ss[e,t,w] / Eefficiency[e] - 0.05 * Epmax[e] * zestb_fs[e,t] / Eefficiency[e])
 
-    m.ext[:constraints][:e_lower_bound_ss] = @constraint(m, [e=E, t=T, k=fallos, w=Wind_scenarios],
-        pe_ss[e,t,k,w] >= Epmin[e] * ze_fs[e,t] + 0.05 * Epmax[e] * zestb_fs[e,t])
-    m.ext[:constraints][:e_upper_bound_ss] = @constraint(m, [e=E, t=T, k=fallos, w=Wind_scenarios],
-        pe_ss[e,t,k,w] <= Epmax[e] * ze_fs[e,t] + 0.05 * Epmax[e] * zestb_fs[e,t])
+    m.ext[:constraints][:e_lower_bound_ss] = @constraint(m, [e=E, t=T, w=Wind_scenarios],
+        pe_ss[e,t,w] >= Epmin[e] * ze_fs[e,t] + 0.05 * Epmax[e] * zestb_fs[e,t])
+    m.ext[:constraints][:e_upper_bound_ss] = @constraint(m, [e=E, t=T, w=Wind_scenarios],
+        pe_ss[e,t,w] <= Epmax[e] * ze_fs[e,t] + 0.05 * Epmax[e] * zestb_fs[e,t])
 
-    m.ext[:constraints][:initial_hydrogen_value_ss] = @constraint(m, [e in E, k in fallos, w in Wind_scenarios],
-        hss_ss[e, Tlabels[1], k, w] == Estorageinitial[e])
+    m.ext[:constraints][:initial_hydrogen_value_ss] = @constraint(m, [e in E, w in Wind_scenarios],
+        hss_ss[e, Tlabels[1], w] == Estorageinitial[e])
 
-    m.ext[:constraints][:end_hydrogen_value_ss] = @constraint(m, [e in E, k in fallos, w in Wind_scenarios],
-        Estorageend[e] == hss_ss[e, Tlabels[NT], k, w] + hfe_ss[e, Tlabels[NT], k, w]
-            - hfginyect_ss[e, Tlabels[NT], k, w] / Eeficiencycarga[e]
-            + hfgconsum_ss[e, Tlabels[NT], k, w] * Eeficiencydischarge[e]
+    m.ext[:constraints][:end_hydrogen_value_ss] = @constraint(m, [e in E, w in Wind_scenarios],
+        Estorageend[e] == hss_ss[e, Tlabels[NT], w] + hfe_ss[e, Tlabels[NT], w]
+            - hfginyect_ss[e, Tlabels[NT], w] / Eeficiencycarga[e]
+            + hfgconsum_ss[e, Tlabels[NT], w] * Eeficiencydischarge[e]
             - Eloadfactor[e] * Epmax[e] / Eefficiency[e])
 
-    m.ext[:constraints][:charging_discharging_hydrogen_ss] = @constraint(m, [e in E, i in 1:NT-1, k in fallos, w in Wind_scenarios],
-        hss_ss[e, Tlabels[i+1], k, w] == hss_ss[e, Tlabels[i], k, w] + hfe_ss[e, Tlabels[i], k, w]
-            - hfginyect_ss[e, Tlabels[i], k, w] / Eeficiencycarga[e]
-            + hfgconsum_ss[e, Tlabels[i], k, w] * Eeficiencydischarge[e]
+    m.ext[:constraints][:charging_discharging_hydrogen_ss] = @constraint(m, [e in E, i in 1:NT-1, w in Wind_scenarios],
+        hss_ss[e, Tlabels[i+1], w] == hss_ss[e, Tlabels[i], w] + hfe_ss[e, Tlabels[i], w]
+            - hfginyect_ss[e, Tlabels[i], w] / Eeficiencycarga[e]
+            + hfgconsum_ss[e, Tlabels[i], w] * Eeficiencydischarge[e]
             - Eloadfactor[e] * Epmax[e] / Eefficiency[e])
 
-    m.ext[:constraints][:compressor_power_ss] = @constraint(m, [e in E, t in T, k in fallos, w in Wind_scenarios],
-        pe_compressor_ss[e,t,k,w] == Ecompressorpower[e] * (hfe_ss[e,t,k,w] + hfgconsum_ss[e,t,k,w] + hfginyect_ss[e,t,k,w]))
+    m.ext[:constraints][:compressor_power_ss] = @constraint(m, [e in E, t in T, w in Wind_scenarios],
+        pe_compressor_ss[e,t,w] == Ecompressorpower[e] * (hfe_ss[e,t,w] + hfgconsum_ss[e,t,w] + hfginyect_ss[e,t,w]))
 
     # ---------------------------------------------------------------------
     #                       LINKS BETWEEN STAGES
@@ -1132,467 +1228,372 @@ m.ext[:constraints][:cost_ss] = @constraint(m, [k = fallos, w = Wind_scenarios],
     # hydrogen trade. Production, storage and compressor power follow from them in each stage.
 
     # Electrolyzer power: schedule plus adjustment
-    m.ext[:constraints][:pe_link] = @constraint(m, [e=E, t=T, k=fallos, w=Wind_scenarios],
-        pe_ss[e,t,k,w] == pe_fs[e,t] + pe_ss_up[e,t,k,w] - pe_ss_dn[e,t,k,w])
+    m.ext[:constraints][:pe_link] = @constraint(m, [e=E, t=T, w=Wind_scenarios],
+        pe_ss[e,t,w] == pe_fs[e,t] + pe_ss_up[e,t,w] - pe_ss_dn[e,t,w])
 
     # Hydrogen purchased (consumed from the grid): schedule plus adjustment
-    m.ext[:constraints][:hfgconsum_link] = @constraint(m, [e=E, t=T, k=fallos, w=Wind_scenarios],
-        hfgconsum_ss[e,t,k,w] == hfgconsum_fs[e,t] + hfgconsum_ss_up[e,t,k,w] - hfgconsum_ss_dn[e,t,k,w])
+    m.ext[:constraints][:hfgconsum_link] = @constraint(m, [e=E, t=T, w=Wind_scenarios],
+        hfgconsum_ss[e,t,w] == hfgconsum_fs[e,t] + hfgconsum_ss_up[e,t,w] - hfgconsum_ss_dn[e,t,w])
 
     # Hydrogen sold (injected to the grid): schedule plus adjustment
-    m.ext[:constraints][:hfginyect_link] = @constraint(m, [e=E, t=T, k=fallos, w=Wind_scenarios],
-        hfginyect_ss[e,t,k,w] == hfginyect_fs[e,t] + hfginyect_ss_up[e,t,k,w] - hfginyect_ss_dn[e,t,k,w])
-
-
-
-    
+    m.ext[:constraints][:hfginyect_link] = @constraint(m, [e=E, t=T, w=Wind_scenarios],
+        hfginyect_ss[e,t,w] == hfginyect_fs[e,t] + hfginyect_ss_up[e,t,w] - hfginyect_ss_dn[e,t,w])
    
 
 
-    #Events constraints (loss of generators)
+    # Power lost when generator k trips = its actual output in wind scenario w (one leaf per k and w)
+    m.ext[:constraints][:gen_constraint_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plg1_ss[t,k,w] == pg_ss[k,t,w])   # area 1
+    m.ext[:constraints][:gen_constraint_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plg2_ss[t,k,w] == pg_ss[k,t,w])   # area 2
 
-    # m.ext[:constraints][:event_binary_constraint]= @constraint(m, [g=G,t=T],
-    # zg[g,t]>=δg[g,t])
-
-    m.ext[:constraints][:gen_constraint_1]= @constraint(m, [g=G1,t=T],
-    pg[g,t]<=plg1[t]
-    )
-
-    m.ext[:constraints][:gen_constraint_2]= @constraint(m, [g=G2,t=T],
-    pg[g,t]<=plg2[t] 
-    )
-    #Events constraints (loss of converters)
-    m.ext[:constraints][:conv_constraint_1]= @constraint(m, [cv=CV1,t=T],
-    conv_p_ac_inj[cv,t]<=plc1[t]
-    )
-    m.ext[:constraints][:conv_constraint_2]= @constraint(m, [cv=CV2,t=T],
-    conv_p_ac_inj[cv,t]<=plc2[t]
-    )
-
-    #  m.ext[:constraints][:event_binary_constraint_c]= @constraint(m, [cv=CV,t=T],
-    # u_conv_p_ac[cv,t]>=δhvdc[cv,t])
-
-    #event constraint (frequency reserve provision)
-    m.ext[:constraints][:loss_of_power_frequency_reserve_G_A_1]= @constraint(m, [t=T],
-    sum(rhvdc_lg2[cv,t] for cv in CV2)==plreserve_1[t]
-    )
-    m.ext[:constraints][:loss_of_power_frequency_reserve_C_A_1]= @constraint(m, [t=T],
-    sum(rhvdc_lc2[cv,t] for cv in CV2)<=plreserve_1[t]
-    )
-    
-    m.ext[:constraints][:loss_of_power_frequency_reserve_G_A_2]= @constraint(m, [t=T],
-    sum(rhvdc_lg1[cv,t] for cv in CV1)==plreserve_2[t]
-    )
-    m.ext[:constraints][:loss_of_power_frequency_reserve_C_A_2]= @constraint(m, [t=T],
-    sum(rhvdc_lc1[cv,t] for cv in CV1)<=plreserve_2[t]
-    )
-
-    
-    #Constraints that define that just one single events is considered per area
-
-    m.ext[:constraints][:single_event_generator_1]= @constraint(m, [t=T],
-    sum(δg[g,t] for g in G1) ==1
-    )
- 
-    m.ext[:constraints][:single_event_generator_2]= @constraint(m, [t=T],
-    sum(δg[g,t] for g in G2) ==1
-    )
-
-      m.ext[:constraints][:single_event_converter_1]= @constraint(m, [t=T],
-    sum(δhvdc[cv,t] for cv in CV1) ==1
-    )
-    m.ext[:constraints][:single_event_converter_2]= @constraint(m, [t=T],
-    sum(δhvdc[cv,t] for cv in CV2) ==1
-    ) 
- 
+    # Events constraints (loss of converters): power lost when converter k trips = its actual AC injection in wind scenario w
+    m.ext[:constraints][:conv_constraint_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plc1_ss[t,k,w] == conv_p_ac_inj_ss[k,t,w])   # area 1
+    m.ext[:constraints][:conv_constraint_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plc2_ss[t,k,w] == conv_p_ac_inj_ss[k,t,w])   # area 2
 
 
 
-    bigMG=Dict()
-    bigMC=Dict()
-    for g in G
-        bigMG[g]=pmax[g]
-    end
+    # Event constraint (frequency reserve provision): when an element of the other area trips, the HVDC reserve
+    # sent to that area is power withdrawn from this area, which creates an imbalance here.
 
-    maxbigMG=maximum(values(bigMG))
+    # Area 1 imbalance: area 1 supports area 2 through the converters of area 2
+    m.ext[:constraints][:loss_of_power_frequency_reserve_G_A_1] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plreserve_1_g_ss[t,k,w] == sum(rhvdc_lg2_ss[cv,t,k,w] for cv in CV2))   # generator k of area 2 trips
+    m.ext[:constraints][:loss_of_power_frequency_reserve_C_A_1] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plreserve_1_c_ss[t,k,w] == sum(rhvdc_lc2_ss[cv,t,k,w] for cv in CV2))   # converter k of area 2 trips
+
+    # Area 2 imbalance: area 2 supports area 1 through the converters of area 1
+    m.ext[:constraints][:loss_of_power_frequency_reserve_G_A_2] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plreserve_2_g_ss[t,k,w] == sum(rhvdc_lg1_ss[cv,t,k,w] for cv in CV1))   # generator k of area 1 trips
+    m.ext[:constraints][:loss_of_power_frequency_reserve_C_A_2] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plreserve_2_c_ss[t,k,w] == sum(rhvdc_lc1_ss[cv,t,k,w] for cv in CV1))   # converter k of area 1 trips
     
 
-    for cv in CV
-        bigMC[cv]=conv_p_ac_max[cv]
-    end
 
-    maxbigMC=maximum(values(bigMC))
-   
-     m.ext[:constraints][:big_m1_gen_1]= @constraint(m, [g=G1,t=T],
-    (δg[g,t]-1)*maxbigMC<= plg1[t]-pg[g,t]
-    )
-    m.ext[:constraints][:big_m2_gen_1]= @constraint(m, [g=G1,t=T],
-    plg1[t]-pg[g,t] <= (1-δg[g,t])*maxbigMG
-    )
-    
-    m.ext[:constraints][:big_m1_gen_2]= @constraint(m, [g=G2,t=T],
-    (δg[g,t]-1)*maxbigMG<= plg2[t]-pg[g,t]
-    )
-    m.ext[:constraints][:big_m2_gen_2]= @constraint(m, [g=G2,t=T],
-    plg2[t]-pg[g,t] <= (1-δg[g,t])*maxbigMG
-    )
 
-    m.ext[:constraints][:big_m1_conv_1]= @constraint(m, [cv=CV1,t=T],
-    (δhvdc[cv,t]-1)*maxbigMC<= plc1[t]-conv_p_ac_inj[cv,t]
-    )
 
-    m.ext[:constraints][:big_m2_conv_1]= @constraint(m, [cv=CV1,t=T],
-    plc1[t]-conv_p_ac_inj[cv,t] <= (1-δhvdc[cv,t])*maxbigMC
-    )
+    # Inertia available in each area after the event (depends only on first-stage commitment, not on wind scenario w)
 
-    m.ext[:constraints][:big_m1_conv_2]= @constraint(m, [cv=CV2,t=T],
-    (δhvdc[cv,t]-1)*maxbigMC<= plc2[t]-conv_p_ac_inj[cv,t]
-    )
+    # Generator loss: the tripped generator k also loses its inertia
+    Inertia_nadir_frequency_1 = m.ext[:expressions][:Inertia_nadir_frequency_1] = @expression(m, [t=T, k=fallos_g1],
+        sum(zg_fs[g,t] * ic[g] * pmax[g] for g in G1) - zg_fs[k,t] * ic[k] * pmax[k])
+    Inertia_nadir_frequency_2 = m.ext[:expressions][:Inertia_nadir_frequency_2] = @expression(m, [t=T, k=fallos_g2],
+        sum(zg_fs[g,t] * ic[g] * pmax[g] for g in G2) - zg_fs[k,t] * ic[k] * pmax[k])
 
-    m.ext[:constraints][:big_m2_conv_2]= @constraint(m, [cv=CV2,t=T],
-    plc2[t]-conv_p_ac_inj[cv,t] <= (1-δhvdc[cv,t])*maxbigMC
-    )
-
-    # Inertia value per area after the event
-    Inertia_nadir_frequency_1=Dict()
-    Inertia_nadir_frequency_2=Dict()
-    Inertia_nadir_frequency_converter_1=Dict()
-    Inertia_nadir_frequency_converter_2=Dict()
-    for t in T 
-        Inertia_nadir_frequency_1[t]=sum((zg[g,t]-δg[g,t])*ic[g]*pmax[g] for g in G1)
-        Inertia_nadir_frequency_2[t]=sum((zg[g,t]-δg[g,t])*ic[g]*pmax[g] for g in G2)
-        Inertia_nadir_frequency_converter_1[t]=sum(zg[g,t]*ic[g]*pmax[g] for g in G1)
-        Inertia_nadir_frequency_converter_2[t]=sum(zg[g,t]*ic[g]*pmax[g] for g in G2)
-    end
+    # Converter loss (and HVDC reserve provision): no synchronous machine is lost, full inertia of the area
+    Inertia_nadir_frequency_converter_1 = m.ext[:expressions][:Inertia_nadir_frequency_converter_1] = @expression(m, [t=T],
+        sum(zg_fs[g,t] * ic[g] * pmax[g] for g in G1))
+    Inertia_nadir_frequency_converter_2 = m.ext[:expressions][:Inertia_nadir_frequency_converter_2] = @expression(m, [t=T],
+        sum(zg_fs[g,t] * ic[g] * pmax[g] for g in G2))
     
 
-  #bounding the FFR and FCR contributions of all generator andconverter assets
-  m.ext[:constraints][:fcr_bound_gen_lg1]= @constraint(m, [g in G1, t in T],
-     rg_lg1[g,t]<=(1-δg[g,t])*upramp[g]*G_dt[g]/3600
-    )
-    m.ext[:constraints][:fcr_bound_gen_lc1]= @constraint(m, [g in G1, t in T],
-     rg_lc1[g,t]<=upramp[g]*G_dt[g]/3600
-    )
-
-    m.ext[:constraints][:fcr_bound_gen_lreserve_1]= @constraint(m, [g in G1, t in T],
-     rg_l_reserve_1[g,t]<=upramp[g]*G_dt[g]/3600
-    )
-    
-    m.ext[:constraints][:fcr_bound_gen_lg2]= @constraint(m, [g in G2, t in T],
-     rg_lg2[g,t]<=(1-δg[g,t])*upramp[g]*G_dt[g]/3600
-    )
-
-    m.ext[:constraints][:fcr_bound_gen_lc2]= @constraint(m, [g in G2, t in T],
-     rg_lc2[g,t]<=upramp[g]*G_dt[g]/3600
-    )
-    m.ext[:constraints][:fcr_bound_gen_lreserve_2]= @constraint(m, [g in G2, t in T],
-     rg_l_reserve_2[g,t]<=upramp[g]*G_dt[g]/3600
-    )
-
-
-    m.ext[:constraints][:fcr_bound_conv_lg1]= @constraint(m, [cv in CV1, t in T],
-         rhvdc_lg1[cv,t]<=2*conv_p_ac_max[cv]
-     )
-     m.ext[:constraints][:fcr_bound_conv_lc1]= @constraint(m, [cv in CV1, t in T],
-         rhvdc_lc1[cv,t]<=(1-δhvdc[cv,t])*2*conv_p_ac_max[cv]
-     )
-
-    m.ext[:constraints][:fcr_bound_conv_lg2]= @constraint(m, [cv in CV2, t in T],
-        rhvdc_lg2[cv,t]<=2*conv_p_ac_max[cv]
-    )
-
-    m.ext[:constraints][:fcr_bound_conv_lc2]= @constraint(m, [cv in CV2, t in T],
-        rhvdc_lc2[cv,t]<=(1-δhvdc[cv,t])*2*conv_p_ac_max[cv]
-    )
+    # The tripped generator cannot provide FCR in its own contingency (replaces the (1 - δg) factor)
+    m.ext[:constraints][:fcr_bound_gen_lg1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        rg_lg1_ss[k,t,k,w] == 0)   # area 1
+    m.ext[:constraints][:fcr_bound_gen_lg2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        rg_lg2_ss[k,t,k,w] == 0)   # area 2
 
 
 
-
-
-
-
-    #HVDC headroom reserve constraints
-    m.ext[:constraints][:hvdc_headroom_reserve_upper_lg1]= @constraint(m, [cv in CV1, t in T],
-        conv_p_ac[cv,t]+rhvdc_lg1[cv,t] <= conv_p_ac_max[cv]
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_lower_lg1]= @constraint(m, [cv in CV1, t in T],
-        -conv_p_ac_max[cv]<=conv_p_ac[cv,t]+rhvdc_lg1[cv,t] 
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_upper_lc1]= @constraint(m, [cv in CV1, t in T],
-        conv_p_ac[cv,t]+rhvdc_lc1[cv,t] <= conv_p_ac_max[cv]
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_lower_lc1]= @constraint(m, [cv in CV1, t in T],
-        -conv_p_ac_max[cv]<=conv_p_ac[cv,t]+rhvdc_lc1[cv,t] 
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_upper_lg2]= @constraint(m, [cv in CV2, t in T],
-        conv_p_ac[cv,t]+rhvdc_lg2[cv,t] <= conv_p_ac_max[cv]
-    )
-    m.ext[:constraints][:hvdc_headroom_reserve_lower_lg2]= @constraint(m, [cv in CV2, t in T],
-        -conv_p_ac_max[cv]<=conv_p_ac[cv,t]+rhvdc_lg2[cv,t] 
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_upper_lc2]= @constraint(m, [cv in CV2, t in T],
-        conv_p_ac[cv,t]+rhvdc_lc2[cv,t] <= conv_p_ac_max[cv]
-    )
-
-    m.ext[:constraints][:hvdc_headroom_reserve_lower_lc2]= @constraint(m, [cv in CV2, t in T],
-        -conv_p_ac_max[cv]<=conv_p_ac[cv,t]+rhvdc_lc2[cv,t] 
-    )
-
-        #Reserve storage bound constraints per areas and type of contigency
-        m.ext[:constraints][:reserve_storage_lg1]=@constraint(m, [s=S1, t=T],
-            rs_lg1[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-        m.ext[:constraints][:reserve_storage_lc1]=@constraint(m, [s=S1, t=T],
-            rs_lc1[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-
-        m.ext[:constraints][:reserve_storage_l_reserve_1]=@constraint(m, [s=S1, t=T],
-        rs_l_reserve_1[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-
-        m.ext[:constraints][:reserve_storage_lg2]=@constraint(m, [s=S2, t=T],
-            rs_lg2[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-        m.ext[:constraints][:reserve_storage_lc2]=@constraint(m, [s=S2, t=T],
-            rs_lc2[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-        m.ext[:constraints][:reserve_storage_l_reserve_2]=@constraint(m, [s=S2, t=T],
-        rs_l_reserve_2[s,t] <=  Spmax[s]+psc[s,t]-psd[s,t]
-        )
-
-
-        #Reserve electrolyzer bound constraint per areas and type of contigency
-        m.ext[:constraints][:reserve_electrolyzer_lg1]=@constraint(m, [e=E1, t=T],
-            re_lg1[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t]-0.05*Epmax[e]*zestb[e,t] 
-        )
-        m.ext[:constraints][:reserve_electrolyzer_lc1]=@constraint(m, [e=E1, t=T],
-            re_lc1[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t]-0.05*Epmax[e]*zestb[e,t]
-        )
-
-        m.ext[:constraints][:reserve_electrolyzer_l_reserve_1]=@constraint(m, [e=E1, t=T],
-        re_l_reserve_1[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t]-0.05*Epmax[e]*zestb[e,t]
-        )
-
-        m.ext[:constraints][:reserve_electrolyzer_lg2]=@constraint(m, [e=E2, t=T],
-            re_lg2[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t]-0.05*Epmax[e]*zestb[e,t]
-        )
-        m.ext[:constraints][:reserve_electrolyzer_lc2]=@constraint(m, [e=E2, t=T],
-            re_lc2[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t]-0.05*Epmax[e]*zestb[e,t] 
-        )
-        m.ext[:constraints][:reserve_electrolyzer_l_reserve_2]=@constraint(m, [e=E2, t=T],
-        re_l_reserve_2[e,t] <=  pe[e,t]-Epmin[e] * ze[e,t] -0.05*Epmax[e]*zestb[e,t]
-        )
+    # The tripped converter cannot provide HVDC reserve in its own contingency (replaces the (1 - δhvdc) factor).
+    # rhvdc_lc1_ss[cv,t,k,w]: 1st index cv = converter providing reserve, 3rd index k = converter that trips.
+    # Writing k in both positions selects only the diagonal (cv == k): the tripped converter's own reserve is zero,
+    # while the reserves of all other converters in that contingency remain free.
+    m.ext[:constraints][:fcr_bound_conv_lc1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        rhvdc_lc1_ss[k,t,k,w] == 0)   # area 1
+    m.ext[:constraints][:fcr_bound_conv_lc2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        rhvdc_lc2_ss[k,t,k,w] == 0)   # area 2
 
         
-    #Reserve bound constraints
-    m.ext[:constraints][:reserve_bound_rg_lg1] = @constraint(m, [g in G1, t in T],
-    rg_lg1[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
+    # Storage reserve headroom: the procured reserve (first stage) must be fully deliverable on the actual
+    # operating point of every wind scenario w (high and low). The battery can stop charging and discharge up to Spmax.
+    # Since rs_*_ss <= r_proc_s for every contingency k, this also bounds all deployed reserves.
+    m.ext[:constraints][:headroom_rproc_s1_ss] = @constraint(m, [s=S1, t=T, w=Wind_scenarios],
+        r_proc_s_1[s,t] <= Spmax[s] + psc_ss[s,t,w] - psd_ss[s,t,w])   # area 1
+    m.ext[:constraints][:headroom_rproc_s2_ss] = @constraint(m, [s=S2, t=T, w=Wind_scenarios],
+        r_proc_s_2[s,t] <= Spmax[s] + psc_ss[s,t,w] - psd_ss[s,t,w])   # area 2
 
-    m.ext[:constraints][:reserve_bound_rg_lc1] = @constraint(m, [g in G1, t in T],
-    rg_lc1[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
 
-    m.ext[:constraints][:reserve_bound_rg_l_reserve_1] = @constraint(m, [g in G1, t in T],
-    rg_l_reserve_1[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
+    # Electrolyzer reserve headroom: the procured reserve (first stage) must be fully deliverable on the actual
+    # operating point of every wind scenario w (high and low). The electrolyzer provides FCR by reducing its
+    # consumption, down to its minimum (Epmin if on, 5% of Epmax if in standby).
+    # Since re_*_ss <= r_proc_e for every contingency k, this also bounds all deployed reserves.
+    m.ext[:constraints][:headroom_rproc_e1_ss] = @constraint(m, [e=E1, t=T, w=Wind_scenarios],
+        r_proc_e_1[e,t] <= pe_ss[e,t,w] - Epmin[e] * ze_fs[e,t] - 0.05 * Epmax[e] * zestb_fs[e,t])   # area 1
+    m.ext[:constraints][:headroom_rproc_e2_ss] = @constraint(m, [e=E2, t=T, w=Wind_scenarios],
+        r_proc_e_2[e,t] <= pe_ss[e,t,w] - Epmin[e] * ze_fs[e,t] - 0.05 * Epmax[e] * zestb_fs[e,t])   # area 2
 
-    m.ext[:constraints][:reserve_bound_rg_lg2] = @constraint(m, [g in G2, t in T],
-    rg_lg2[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
-
-    m.ext[:constraints][:reserve_bound_rg_lc2] = @constraint(m, [g in G2, t in T],
-    rg_lc2[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
-
-    m.ext[:constraints][:reserve_bound_rg_l_reserve_2] = @constraint(m, [g in G2, t in T],
-    rg_l_reserve_2[g,t] <= MaxFreqDev[g]*zg[g,t]
-    )
+        
+    # Reserve bound: the FCR capability of each generator (MaxFreqDev) limits its procured reserve,
+    # and only committed units can provide it. Applied to the procured reserve (first stage);
+    # since rg_*_ss <= r_proc_g for every contingency k and wind scenario w, it also bounds all deployed reserves.
+    m.ext[:constraints][:reserve_bound_r_proc_g1] = @constraint(m, [g=G1, t=T],
+        r_proc_g_1[g,t] <= MaxFreqDev[g] * zg_fs[g,t])   # area 1
+    m.ext[:constraints][:reserve_bound_r_proc_g2] = @constraint(m, [g=G2, t=T],
+        r_proc_g_2[g,t] <= MaxFreqDev[g] * zg_fs[g,t])   # area 2
     
 
    
 
 
 
-    #Rocof constraints generators and converters per areas
-    m.ext[:constraints][:rocof_constraint_plg_1]= @constraint(m, [t in T],
-        f1*plg1[t] <= rocof1*(2*Inertia_nadir_frequency_1[t] )
-    )
+    # RoCoF constraints per area and type of contingency, in every contingency k and wind scenario w:
+    # the initial rate of change of frequency after losing power pl must stay below the limit rocof.
+    # The loss depends on the actual operation (k, w); the inertia only on the first-stage commitment.
 
-    m.ext[:constraints][:rocof_constraint_plc_1]= @constraint(m, [t in T], 
-        f1*plc1[t] <= rocof1*(2*Inertia_nadir_frequency_converter_1[t] )
-    )
-    
-    m.ext[:constraints][:rocof_constraint_plg_2]= @constraint(m, [t in T],
-        f2*plg2[t] <= rocof2*(2*Inertia_nadir_frequency_2[t] )
-    )
+    # Area 1
+    m.ext[:constraints][:rocof_constraint_plg_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        f1 * plg1_ss[t,k,w] <= rocof1 * (2 * Inertia_nadir_frequency_1[t,k]))                     # generator k of area 1 trips (its inertia is lost too)
+    m.ext[:constraints][:rocof_constraint_plc_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        f1 * plc1_ss[t,k,w] <= rocof1 * (2 * Inertia_nadir_frequency_converter_1[t]))             # converter k of area 1 trips (full inertia)
+    m.ext[:constraints][:rocof_constraint_plreserve_1_g] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        f1 * plreserve_1_g_ss[t,k,w] <= rocof1 * (2 * Inertia_nadir_frequency_converter_1[t]))    # area 1 supports area 2 after generator k of area 2 trips
+    m.ext[:constraints][:rocof_constraint_plreserve_1_c] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        f1 * plreserve_1_c_ss[t,k,w] <= rocof1 * (2 * Inertia_nadir_frequency_converter_1[t]))    # area 1 supports area 2 after converter k of area 2 trips
 
-    m.ext[:constraints][:rocof_constraint_plc_2]= @constraint(m, [t in T],
-        f2*plc2[t] <= rocof2*(2*Inertia_nadir_frequency_converter_2[t] )
-    )
+    # Area 2
+    m.ext[:constraints][:rocof_constraint_plg_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        f2 * plg2_ss[t,k,w] <= rocof2 * (2 * Inertia_nadir_frequency_2[t,k]))                     # generator k of area 2 trips (its inertia is lost too)
+    m.ext[:constraints][:rocof_constraint_plc_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        f2 * plc2_ss[t,k,w] <= rocof2 * (2 * Inertia_nadir_frequency_converter_2[t]))             # converter k of area 2 trips (full inertia)
+    m.ext[:constraints][:rocof_constraint_plreserve_2_g] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        f2 * plreserve_2_g_ss[t,k,w] <= rocof2 * (2 * Inertia_nadir_frequency_converter_2[t]))    # area 2 supports area 1 after generator k of area 1 trips
+    m.ext[:constraints][:rocof_constraint_plreserve_2_c] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        f2 * plreserve_2_c_ss[t,k,w] <= rocof2 * (2 * Inertia_nadir_frequency_converter_2[t]))    # area 2 supports area 1 after converter k of area 1 trips
 
-    m.ext[:constraints][:rocof_constraint_plreserve_1]= @constraint(m, [t in T],
-        f1*plreserve_1[t] <= rocof1*(2*Inertia_nadir_frequency_converter_1[t] )
-    )
+    # Quasi-steady-state power balance after each contingency k in every wind scenario w:
+    # the FCR deployed in the area (storage + electrolyzers + generators + HVDC support) must cover the power lost.
+    # Only assets that remain connected contribute, which is enforced by other constraints:
+    #   - the tripped generator cannot provide reserve to itself: rg_lg1_ss[k,t,k,w] == 0 (same for area 2)
+    #   - the tripped converter cannot provide HVDC reserve:      rhvdc_lc1_ss[k,t,k,w] == 0 (same for area 2)
+    # Area 1
+    m.ext[:constraints][:power_balance_lg1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        sum(rs_lg1_ss[s,t,k,w] for s in S1) + sum(re_lg1_ss[e,t,k,w] for e in E1)
+        + sum(rg_lg1_ss[g,t,k,w] for g in G1) + sum(rhvdc_lg1_ss[cv,t,k,w] for cv in CV1)
+        >= plg1_ss[t,k,w])                                                    # generator k of area 1 trips
+    m.ext[:constraints][:power_balance_lc1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        sum(rs_lc1_ss[s,t,k,w] for s in S1) + sum(re_lc1_ss[e,t,k,w] for e in E1)
+        + sum(rg_lc1_ss[g,t,k,w] for g in G1) + sum(rhvdc_lc1_ss[cv,t,k,w] for cv in CV1)
+        >= plc1_ss[t,k,w])                                                    # converter k of area 1 trips
+    m.ext[:constraints][:power_balance_lreserve_1_g] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        sum(rs_l_reserve_1_g_ss[s,t,k,w] for s in S1) + sum(re_l_reserve_1_g_ss[e,t,k,w] for e in E1)
+        + sum(rg_l_reserve_1_g_ss[g,t,k,w] for g in G1)
+        >= plreserve_1_g_ss[t,k,w])                                           # area 1 supports area 2 after generator k of area 2 trips
+    m.ext[:constraints][:power_balance_lreserve_1_c] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        sum(rs_l_reserve_1_c_ss[s,t,k,w] for s in S1) + sum(re_l_reserve_1_c_ss[e,t,k,w] for e in E1)
+        + sum(rg_l_reserve_1_c_ss[g,t,k,w] for g in G1)
+        >= plreserve_1_c_ss[t,k,w])                                           # area 1 supports area 2 after converter k of area 2 trips
 
-    m.ext[:constraints][:rocof_constraint_plreserve_2]= @constraint(m, [t in T],
-        f2*plreserve_2[t] <= rocof2*(2*Inertia_nadir_frequency_converter_2[t] )
-    )
-
-    #Power balance constraint
-
-        m.ext[:constraints][:power_balance_lg1]= @constraint(m, [t in T],
-        sum(rs_lg1[s,t] for s in S1)+sum(re_lg1[e,t] for e in E1)+sum(rg_lg1[g,t] for g in G1)+sum(rhvdc_lg1[cv,t] for cv in CV1)>=plg1[t]
-    )
-    m.ext[:constraints][:power_balance_lc1]= @constraint(m, [t in T],
-      sum(rs_lc1[s,t] for s in S1)+sum(re_lc1[e,t] for e in E1)+sum(rg_lc1[g,t] for g in G1)+sum(rhvdc_lc1[cv,t] for cv in CV1)>=plc1[t]
-    )
-
-     m.ext[:constraints][:power_balance_lg2]= @constraint(m, [t in T],
-        sum(rs_lg2[s,t] for s in S2)+sum(re_lg2[e,t] for e in E2)+sum(rg_lg2[g,t] for g in G2)+sum(rhvdc_lg2[cv,t] for cv in CV2)>=plg2[t]
-    )
-     m.ext[:constraints][:power_balance_lc2]= @constraint(m, [t in T],
-        sum(rs_lc2[s,t] for s in S2)+sum(re_lc2[e,t] for e in E2)+sum(rg_lc2[g,t] for g in G2)+sum(rhvdc_lc2[cv,t] for cv in CV2)>=plc2[t]
-    )
-
-    m.ext[:constraints][:power_balance_lreserve_1]= @constraint(m, [t in T],
-        sum(rs_l_reserve_1[s,t] for s in S1)+sum(re_l_reserve_1[e,t] for e in E1)+sum(rg_l_reserve_1[g,t] for g in G1)>=plreserve_1[t]
-    )
-    m.ext[:constraints][:power_balance_lreserve_2]= @constraint(m, [t in T],
-        sum(rs_l_reserve_2[s,t] for s in S2)+sum(re_l_reserve_2[e,t] for e in E2)+sum(rg_l_reserve_2[g,t] for g in G2)>=plreserve_2[t]
-    )
-
-   # Constraint frequency nadir generators and converters area 1
-
-    m.ext[:constraints][:nadir_frequency_g_1_constraint_1]= @constraint(m, [t in T],
-    ypg1[t]==2*deltaf1*(Inertia_nadir_frequency_1[t] )/f1-sum(re_lg1[e,t]*Edeployment[e] for e in E1)/2-sum(rs_lg1[s,t]*Sdeployment[s] for s in S1)/2-sum(rhvdc_lg1[cv,t]*HVDC_deployment[cv] for cv in CV1)/2   
-    )
-
-    m.ext[:constraints][:nadir_frequency_g_1_constraint_2]= @constraint(m, [t in T],
-    zpg1[t]==sum(rg_lg1[g,t]/G_dt[g] for g in G1)   
-    )
-
-
-    m.ext[:constraints][:nadir_frequency_g_1_constraint_3] = @constraint(m,[t in T],
-    [ypg1[t]; zpg1[t]; plg1[t]-sum(re_lg1[e,t] for e in E1)-sum(rs_lg1[s,t] for s in S1)-sum(rhvdc_lg1[cv,t] for cv in CV1)] in RotatedSecondOrderCone()
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_1_constraint_1]= @constraint(m, [t in T],
-    ypc1[t]==2*deltaf1*(Inertia_nadir_frequency_converter_1[t] )/f1-sum(re_lc1[e,t]*Edeployment[e] for e in E1)/2-sum(rs_lc1[s,t]*Sdeployment[s] for s in S1)/2-sum(rhvdc_lc1[cv,t]*HVDC_deployment[cv] for cv in CV1)/2 
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_1_constraint_2]= @constraint(m, [t in T],
-    zpc1[t]==sum(rg_lc1[g,t]/G_dt[g] for g in G1)
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_1_constraint_3] = @constraint(m,[t in T],
-    [ypc1[t]; zpc1[t]; plc1[t]-sum(re_lc1[e,t] for e in E1)-sum(rs_lc1[s,t] for s in S1)-sum(rhvdc_lc1[cv,t] for cv in CV1)] in RotatedSecondOrderCone()
-    )
-
-    m.ext[:constraints][:nadir_frequency_reserve_1_constraint_1]= @constraint(m, [t in T],
-    ypreserve1[t]==2*deltaf1*(Inertia_nadir_frequency_converter_1[t] )/f1-sum(re_l_reserve_1[e,t]*Edeployment[e] for e in E1)/2-sum(rs_l_reserve_1[s,t]*Sdeployment[s] for s in S1)/2
-    )
-
-    m.ext[:constraints][:nadir_frequency_reserve_1_constraint_2]= @constraint(m, [t in T],
-    zpreserve1[t]==sum(rg_l_reserve_1[g,t]/G_dt[g] for g in G1)
-    )
-    m.ext[:constraints][:nadir_frequency_reserve_1_constraint_3] = @constraint(m,[t in T],
-    [ypreserve1[t]; zpreserve1[t]; plreserve_1[t]-sum(re_l_reserve_1[e,t] for e in E1)-sum(rs_l_reserve_1[s,t] for s in S1)] in RotatedSecondOrderCone()
-    )
-
-    # #Constraint frequency nadir generators and converters area 2
-
-    m.ext[:constraints][:nadir_frequency_g_2_constraint_1]= @constraint(m, [t in T],
-    ypg2[t]==2*deltaf2*(Inertia_nadir_frequency_2[t] )/f2-sum(re_lg2[e,t]*Edeployment[e] for e in E2)/2-sum(rs_lg2[s,t]*Sdeployment[s] for s in S2)/2-sum(rhvdc_lg2[cv,t]*HVDC_deployment[cv] for cv in CV2)/2   
-    )
-
-    m.ext[:constraints][:nadir_frequency_g_2_constraint_2]= @constraint(m, [t in T],
-    zpg2[t]==sum(rg_lg2[g,t]/G_dt[g] for g in G2)   
-    )
-
-    m.ext[:constraints][:nadir_frequency_g_2_constraint_3] = @constraint(m,[t in T],
-    [ypg2[t]; zpg2[t]; plg2[t]-sum(re_lg2[e,t] for e in E2)-sum(rs_lg2[s,t] for s in S2)-sum(rhvdc_lg2[cv,t] for cv in CV2) ] in RotatedSecondOrderCone()
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_2_constraint_1]= @constraint(m, [t in T],
-    ypc2[t]==2*deltaf2*(Inertia_nadir_frequency_converter_2[t] )/f2-sum(re_lc2[e,t]*Edeployment[e] for e in E2)/2-sum(rs_lc2[s,t]*Sdeployment[s] for s in S2)/2-sum(rhvdc_lc2[cv,t]*HVDC_deployment[cv] for cv in CV2)/2 
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_2_constraint_2]= @constraint(m, [t in T],
-    zpc2[t]==sum(rg_lc2[g,t]/G_dt[g] for g in G2)
-    )
-
-    m.ext[:constraints][:nadir_frequency_c_2_constraint_3] = @constraint(m,[t in T],
-    [ypc2[t]; zpc2[t]; plc2[t]-sum(re_lc2[e,t] for e in E2)-sum(rs_lc2[s,t] for s in S2)-sum(rhvdc_lc2[cv,t] for cv in CV2) ] in RotatedSecondOrderCone()
-    )
-
-    m.ext[:constraints][:nadir_frequency_reserve_2_constraint_1]= @constraint(m, [t in T],
-    ypreserve2[t]==2*deltaf2*(Inertia_nadir_frequency_converter_2[t] )/f2-sum(re_l_reserve_2[e,t]*Edeployment[e] for e in E2)/2-sum(rs_l_reserve_2[s,t]*Sdeployment[s] for s in S2)/2
-    )
-
-    m.ext[:constraints][:nadir_frequency_reserve_2_constraint_2]= @constraint(m, [t in T],
-    zpreserve2[t]==sum(rg_l_reserve_2[g,t]/G_dt[g] for g in G2)
-    )
-    m.ext[:constraints][:nadir_frequency_reserve_2_constraint_3] = @constraint(m,[t in T],
-    [ypreserve2[t]; zpreserve2[t]; plreserve_2[t]-sum(re_l_reserve_2[e,t] for e in E2)-sum(rs_l_reserve_2[s,t] for s in S2)] in RotatedSecondOrderCone()
-    )
-   
-
-    # #Constraint time occurrence nadir
-    m.ext[:constraints][:time_nadir_occurrence_g1_1]= @constraint(m, [t in T],
-    plg1[t]<= 0.0000001+ sum(re_lg1[e,t] for e in E1)+sum(rs_lg1[s,t] for s in S1)+sum(rhvdc_lg1[cv,t] for cv in CV1)+sum(rg_lg1[g,t] for g in G1)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_g1_2]= @constraint(m, [t in T],
-    plg1[t]>=0.0000001+ sum(re_lg1[e,t] for e in E1)+sum(rs_lg1[s,t] for s in S1)+sum(rhvdc_lg1[cv,t] for cv in CV1)+sum(rg_lg1[g,t] for g in G1)*Edeployment["1"]/G_dt["1"]
-    )
-
-    m.ext[:constraints][:time_nadir_occurrence_c1_1]= @constraint(m, [t in T],
-    plc1[t]<= 0.0000001+ sum(re_lc1[e,t] for e in E1)+sum(rs_lc1[s,t] for s in S1)+sum(rhvdc_lc1[cv,t] for cv in CV1)+sum(rg_lc1[g,t] for g in G1)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_c1_2]= @constraint(m, [t in T],
-    plc1[t]>=0.0000001+ sum(re_lc1[e,t] for e in E1)+sum(rs_lc1[s,t] for s in S1)+sum(rhvdc_lc1[cv,t] for cv in CV1)+sum(rg_lc1[g,t] for g in G1)*Edeployment["1"]/G_dt["1"]
-    )
-
-    m.ext[:constraints][:time_nadir_occurrence_g2_1]= @constraint(m, [t in T],
-    plg2[t]<= 0.0000001 +sum(re_lg2[e,t] for e in E2)+sum(rs_lg2[s,t] for s in S2)+sum(rhvdc_lg2[cv,t] for cv in CV2)+sum(rg_lg2[g,t] for g in G2)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_g2_2]= @constraint(m, [t in T],
-    plg2[t]>=0.0000001 +sum(re_lg2[e,t] for e in E2)+sum(rs_lg2[s,t] for s in S2)+sum(rhvdc_lg2[cv,t] for cv in CV2)+sum(rg_lg2[g,t] for g in G2)*Edeployment["1"]/G_dt["1"]
-    )
-
-    m.ext[:constraints][:time_nadir_occurrence_c2_1]= @constraint(m, [t in T],
-    plc2[t]<= 0.0000001 +sum(re_lc2[e,t] for e in E2)+sum(rs_lc2[s,t] for s in S2)+sum(rhvdc_lc2[cv,t] for cv in CV2)+sum(rg_lc2[g,t] for g in G2)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_c2_2]= @constraint(m, [t in T],
-    plc2[t]>=0.0000001 +sum(re_lc2[e,t] for e in E2)+sum(rs_lc2[s,t] for s in S2)+sum(rhvdc_lc2[cv,t] for cv in CV2)+sum(rg_lc2[g,t] for g in G2)*Edeployment["1"]/G_dt["1"]
-    )
-
-    m.ext[:constraints][:time_nadir_occurrence_reserve_1_1]= @constraint(m, [t in T],
-    plreserve_1[t]<= 0.0000001 +sum(re_l_reserve_1[e,t] for e in E1)+sum(rs_l_reserve_1[s,t] for s in S1)+sum(rg_l_reserve_1[g,t] for g in G1)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_reserve_1_2]= @constraint(m, [t in T],
-    plreserve_1[t]>=0.0000001 +sum(re_l_reserve_1[e,t] for e in E1)+sum(rs_l_reserve_1[s,t] for s in S1)+sum(rg_l_reserve_1[g,t] for g in G1)*Edeployment["1"]/G_dt["1"]
-    )
-
-    m.ext[:constraints][:time_nadir_occurrence_reserve_2_1]= @constraint(m, [t in T],
-    plreserve_2[t]<= 0.0000001 +sum(re_l_reserve_2[e,t] for e in E2)+sum(rs_l_reserve_2[s,t] for s in S2)+sum(rg_l_reserve_2[g,t] for g in G2)
-    )
-    m.ext[:constraints][:time_nadir_occurrence_reserve_2_2]= @constraint(m, [t in T],
-    plreserve_2[t]>=0.0000001 +sum(re_l_reserve_2[e,t] for e in E2)+sum(rs_l_reserve_2[s,t] for s in S2)+sum(rg_l_reserve_2[g,t] for g in G2)*Edeployment["1"]/G_dt["1"]
-    )
-
-    #Absolute value constraints
-  
+    # Area 2
+    m.ext[:constraints][:power_balance_lg2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        sum(rs_lg2_ss[s,t,k,w] for s in S2) + sum(re_lg2_ss[e,t,k,w] for e in E2)
+        + sum(rg_lg2_ss[g,t,k,w] for g in G2) + sum(rhvdc_lg2_ss[cv,t,k,w] for cv in CV2)
+        >= plg2_ss[t,k,w])                                                    # generator k of area 2 trips
+    m.ext[:constraints][:power_balance_lc2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        sum(rs_lc2_ss[s,t,k,w] for s in S2) + sum(re_lc2_ss[e,t,k,w] for e in E2)
+        + sum(rg_lc2_ss[g,t,k,w] for g in G2) + sum(rhvdc_lc2_ss[cv,t,k,w] for cv in CV2)
+        >= plc2_ss[t,k,w])                                                    # converter k of area 2 trips
+    m.ext[:constraints][:power_balance_lreserve_2_g] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        sum(rs_l_reserve_2_g_ss[s,t,k,w] for s in S2) + sum(re_l_reserve_2_g_ss[e,t,k,w] for e in E2)
+        + sum(rg_l_reserve_2_g_ss[g,t,k,w] for g in G2)
+        >= plreserve_2_g_ss[t,k,w])                                           # area 2 supports area 1 after generator k of area 1 trips
+    m.ext[:constraints][:power_balance_lreserve_2_c] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        sum(rs_l_reserve_2_c_ss[s,t,k,w] for s in S2) + sum(re_l_reserve_2_c_ss[e,t,k,w] for e in E2)
+        + sum(rg_l_reserve_2_c_ss[g,t,k,w] for g in G2)
+        >= plreserve_2_c_ss[t,k,w])                                           # area 2 supports area 1 after converter k of area 1 trips
 
 
 
+    # =====================================================================
+    #                    FREQUENCY NADIR CONSTRAINTS
+    # =====================================================================
+    # One rotated second-order cone per contingency k and wind scenario w (Badesa nadir formulation):
+    #   y = 2*Δf*H/f - (fast reserves weighted by deployment time)/2
+    #   z = sum of generator reserves / delivery time
+    #   [y; z; P_loss - fast reserves] in RotatedSecondOrderCone()   ->   2*y*z >= (P_loss - fast reserves)^2
+    # Inertia depends only on the first-stage commitment: [t,k] for generator loss, [t] otherwise.
 
+    # ----------------------------- AREA 1 --------------------------------
 
+    # Generator k of area 1 trips
+    m.ext[:constraints][:nadir_frequency_g_1_constraint_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        ypg1_ss[t,k,w] == 2*deltaf1*Inertia_nadir_frequency_1[t,k]/f1
+            - sum(re_lg1_ss[e,t,k,w]*Edeployment[e] for e in E1)/2
+            - sum(rs_lg1_ss[s,t,k,w]*Sdeployment[s] for s in S1)/2
+            - sum(rhvdc_lg1_ss[cv,t,k,w]*HVDC_deployment[cv] for cv in CV1)/2)
+    m.ext[:constraints][:nadir_frequency_g_1_constraint_2] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        zpg1_ss[t,k,w] == sum(rg_lg1_ss[g,t,k,w]/G_dt[g] for g in G1))
+    m.ext[:constraints][:nadir_frequency_g_1_constraint_3] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        [ypg1_ss[t,k,w]; zpg1_ss[t,k,w];
+         plg1_ss[t,k,w] - sum(re_lg1_ss[e,t,k,w] for e in E1) - sum(rs_lg1_ss[s,t,k,w] for s in S1)
+                        - sum(rhvdc_lg1_ss[cv,t,k,w] for cv in CV1)] in RotatedSecondOrderCone())
+
+    # Converter k of area 1 trips
+    m.ext[:constraints][:nadir_frequency_c_1_constraint_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        ypc1_ss[t,k,w] == 2*deltaf1*Inertia_nadir_frequency_converter_1[t]/f1
+            - sum(re_lc1_ss[e,t,k,w]*Edeployment[e] for e in E1)/2
+            - sum(rs_lc1_ss[s,t,k,w]*Sdeployment[s] for s in S1)/2
+            - sum(rhvdc_lc1_ss[cv,t,k,w]*HVDC_deployment[cv] for cv in CV1)/2)
+    m.ext[:constraints][:nadir_frequency_c_1_constraint_2] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        zpc1_ss[t,k,w] == sum(rg_lc1_ss[g,t,k,w]/G_dt[g] for g in G1))
+    m.ext[:constraints][:nadir_frequency_c_1_constraint_3] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        [ypc1_ss[t,k,w]; zpc1_ss[t,k,w];
+         plc1_ss[t,k,w] - sum(re_lc1_ss[e,t,k,w] for e in E1) - sum(rs_lc1_ss[s,t,k,w] for s in S1)
+                        - sum(rhvdc_lc1_ss[cv,t,k,w] for cv in CV1)] in RotatedSecondOrderCone())
+
+    # Area 1 supports area 2 after generator k of area 2 trips (no HVDC reserve: area 1 is the one sending it)
+    m.ext[:constraints][:nadir_frequency_reserve_1_g_constraint_1] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        ypreserve1_g_ss[t,k,w] == 2*deltaf1*Inertia_nadir_frequency_converter_1[t]/f1
+            - sum(re_l_reserve_1_g_ss[e,t,k,w]*Edeployment[e] for e in E1)/2
+            - sum(rs_l_reserve_1_g_ss[s,t,k,w]*Sdeployment[s] for s in S1)/2)
+    m.ext[:constraints][:nadir_frequency_reserve_1_g_constraint_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        zpreserve1_g_ss[t,k,w] == sum(rg_l_reserve_1_g_ss[g,t,k,w]/G_dt[g] for g in G1))
+    m.ext[:constraints][:nadir_frequency_reserve_1_g_constraint_3] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        [ypreserve1_g_ss[t,k,w]; zpreserve1_g_ss[t,k,w];
+         plreserve_1_g_ss[t,k,w] - sum(re_l_reserve_1_g_ss[e,t,k,w] for e in E1)
+                                 - sum(rs_l_reserve_1_g_ss[s,t,k,w] for s in S1)] in RotatedSecondOrderCone())
+
+    # Area 1 supports area 2 after converter k of area 2 trips
+    m.ext[:constraints][:nadir_frequency_reserve_1_c_constraint_1] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        ypreserve1_c_ss[t,k,w] == 2*deltaf1*Inertia_nadir_frequency_converter_1[t]/f1
+            - sum(re_l_reserve_1_c_ss[e,t,k,w]*Edeployment[e] for e in E1)/2
+            - sum(rs_l_reserve_1_c_ss[s,t,k,w]*Sdeployment[s] for s in S1)/2)
+    m.ext[:constraints][:nadir_frequency_reserve_1_c_constraint_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        zpreserve1_c_ss[t,k,w] == sum(rg_l_reserve_1_c_ss[g,t,k,w]/G_dt[g] for g in G1))
+    m.ext[:constraints][:nadir_frequency_reserve_1_c_constraint_3] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        [ypreserve1_c_ss[t,k,w]; zpreserve1_c_ss[t,k,w];
+         plreserve_1_c_ss[t,k,w] - sum(re_l_reserve_1_c_ss[e,t,k,w] for e in E1)
+                                 - sum(rs_l_reserve_1_c_ss[s,t,k,w] for s in S1)] in RotatedSecondOrderCone())
+
+    # ----------------------------- AREA 2 --------------------------------
+
+    # Generator k of area 2 trips
+    m.ext[:constraints][:nadir_frequency_g_2_constraint_1] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        ypg2_ss[t,k,w] == 2*deltaf2*Inertia_nadir_frequency_2[t,k]/f2
+            - sum(re_lg2_ss[e,t,k,w]*Edeployment[e] for e in E2)/2
+            - sum(rs_lg2_ss[s,t,k,w]*Sdeployment[s] for s in S2)/2
+            - sum(rhvdc_lg2_ss[cv,t,k,w]*HVDC_deployment[cv] for cv in CV2)/2)
+    m.ext[:constraints][:nadir_frequency_g_2_constraint_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        zpg2_ss[t,k,w] == sum(rg_lg2_ss[g,t,k,w]/G_dt[g] for g in G2))
+    m.ext[:constraints][:nadir_frequency_g_2_constraint_3] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        [ypg2_ss[t,k,w]; zpg2_ss[t,k,w];
+         plg2_ss[t,k,w] - sum(re_lg2_ss[e,t,k,w] for e in E2) - sum(rs_lg2_ss[s,t,k,w] for s in S2)
+                        - sum(rhvdc_lg2_ss[cv,t,k,w] for cv in CV2)] in RotatedSecondOrderCone())
+
+    # Converter k of area 2 trips
+    m.ext[:constraints][:nadir_frequency_c_2_constraint_1] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        ypc2_ss[t,k,w] == 2*deltaf2*Inertia_nadir_frequency_converter_2[t]/f2
+            - sum(re_lc2_ss[e,t,k,w]*Edeployment[e] for e in E2)/2
+            - sum(rs_lc2_ss[s,t,k,w]*Sdeployment[s] for s in S2)/2
+            - sum(rhvdc_lc2_ss[cv,t,k,w]*HVDC_deployment[cv] for cv in CV2)/2)
+    m.ext[:constraints][:nadir_frequency_c_2_constraint_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        zpc2_ss[t,k,w] == sum(rg_lc2_ss[g,t,k,w]/G_dt[g] for g in G2))
+    m.ext[:constraints][:nadir_frequency_c_2_constraint_3] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        [ypc2_ss[t,k,w]; zpc2_ss[t,k,w];
+         plc2_ss[t,k,w] - sum(re_lc2_ss[e,t,k,w] for e in E2) - sum(rs_lc2_ss[s,t,k,w] for s in S2)
+                        - sum(rhvdc_lc2_ss[cv,t,k,w] for cv in CV2)] in RotatedSecondOrderCone())
+
+    # Area 2 supports area 1 after generator k of area 1 trips (no HVDC reserve: area 2 is the one sending it)
+    m.ext[:constraints][:nadir_frequency_reserve_2_g_constraint_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        ypreserve2_g_ss[t,k,w] == 2*deltaf2*Inertia_nadir_frequency_converter_2[t]/f2
+            - sum(re_l_reserve_2_g_ss[e,t,k,w]*Edeployment[e] for e in E2)/2
+            - sum(rs_l_reserve_2_g_ss[s,t,k,w]*Sdeployment[s] for s in S2)/2)
+    m.ext[:constraints][:nadir_frequency_reserve_2_g_constraint_2] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        zpreserve2_g_ss[t,k,w] == sum(rg_l_reserve_2_g_ss[g,t,k,w]/G_dt[g] for g in G2))
+    m.ext[:constraints][:nadir_frequency_reserve_2_g_constraint_3] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        [ypreserve2_g_ss[t,k,w]; zpreserve2_g_ss[t,k,w];
+         plreserve_2_g_ss[t,k,w] - sum(re_l_reserve_2_g_ss[e,t,k,w] for e in E2)
+                                 - sum(rs_l_reserve_2_g_ss[s,t,k,w] for s in S2)] in RotatedSecondOrderCone())
+
+    # Area 2 supports area 1 after converter k of area 1 trips
+    m.ext[:constraints][:nadir_frequency_reserve_2_c_constraint_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        ypreserve2_c_ss[t,k,w] == 2*deltaf2*Inertia_nadir_frequency_converter_2[t]/f2
+            - sum(re_l_reserve_2_c_ss[e,t,k,w]*Edeployment[e] for e in E2)/2
+            - sum(rs_l_reserve_2_c_ss[s,t,k,w]*Sdeployment[s] for s in S2)/2)
+    m.ext[:constraints][:nadir_frequency_reserve_2_c_constraint_2] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        zpreserve2_c_ss[t,k,w] == sum(rg_l_reserve_2_c_ss[g,t,k,w]/G_dt[g] for g in G2))
+    m.ext[:constraints][:nadir_frequency_reserve_2_c_constraint_3] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        [ypreserve2_c_ss[t,k,w]; zpreserve2_c_ss[t,k,w];
+         plreserve_2_c_ss[t,k,w] - sum(re_l_reserve_2_c_ss[e,t,k,w] for e in E2)
+                                 - sum(rs_l_reserve_2_c_ss[s,t,k,w] for s in S2)] in RotatedSecondOrderCone())
+       # =====================================================================
+    #                 TIME OF OCCURRENCE OF THE NADIR
+    # =====================================================================
+    # For every contingency k and wind scenario w, the nadir must occur after the fast reserves are
+    # fully deployed and before the generator reserves are fully delivered:
+    #   _1: P_loss <= eps + all reserves
+    #   _2: P_loss >= eps + fast reserves + generator reserves * (Edeployment / G_dt)
+    eps_nadir = 0.0000001
+
+    # ----------------------------- AREA 1 --------------------------------
+
+    # Generator k of area 1 trips
+    m.ext[:constraints][:time_nadir_occurrence_g1_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plg1_ss[t,k,w] <= eps_nadir + sum(re_lg1_ss[e,t,k,w] for e in E1) + sum(rs_lg1_ss[s,t,k,w] for s in S1)
+            + sum(rhvdc_lg1_ss[cv,t,k,w] for cv in CV1) + sum(rg_lg1_ss[g,t,k,w] for g in G1))
+    m.ext[:constraints][:time_nadir_occurrence_g1_2] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plg1_ss[t,k,w] >= eps_nadir + sum(re_lg1_ss[e,t,k,w] for e in E1) + sum(rs_lg1_ss[s,t,k,w] for s in S1)
+            + sum(rhvdc_lg1_ss[cv,t,k,w] for cv in CV1) + sum(rg_lg1_ss[g,t,k,w] for g in G1)*Edeployment["1"]/G_dt["1"])
+
+    # Converter k of area 1 trips
+    m.ext[:constraints][:time_nadir_occurrence_c1_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plc1_ss[t,k,w] <= eps_nadir + sum(re_lc1_ss[e,t,k,w] for e in E1) + sum(rs_lc1_ss[s,t,k,w] for s in S1)
+            + sum(rhvdc_lc1_ss[cv,t,k,w] for cv in CV1) + sum(rg_lc1_ss[g,t,k,w] for g in G1))
+    m.ext[:constraints][:time_nadir_occurrence_c1_2] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plc1_ss[t,k,w] >= eps_nadir + sum(re_lc1_ss[e,t,k,w] for e in E1) + sum(rs_lc1_ss[s,t,k,w] for s in S1)
+            + sum(rhvdc_lc1_ss[cv,t,k,w] for cv in CV1) + sum(rg_lc1_ss[g,t,k,w] for g in G1)*Edeployment["1"]/G_dt["1"])
+
+    # Area 1 supports area 2 after generator k of area 2 trips (no HVDC reserve)
+    m.ext[:constraints][:time_nadir_occurrence_reserve_1_g_1] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plreserve_1_g_ss[t,k,w] <= eps_nadir + sum(re_l_reserve_1_g_ss[e,t,k,w] for e in E1)
+            + sum(rs_l_reserve_1_g_ss[s,t,k,w] for s in S1) + sum(rg_l_reserve_1_g_ss[g,t,k,w] for g in G1))
+    m.ext[:constraints][:time_nadir_occurrence_reserve_1_g_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plreserve_1_g_ss[t,k,w] >= eps_nadir + sum(re_l_reserve_1_g_ss[e,t,k,w] for e in E1)
+            + sum(rs_l_reserve_1_g_ss[s,t,k,w] for s in S1) + sum(rg_l_reserve_1_g_ss[g,t,k,w] for g in G1)*Edeployment["1"]/G_dt["1"])
+
+    # Area 1 supports area 2 after converter k of area 2 trips (no HVDC reserve)
+    m.ext[:constraints][:time_nadir_occurrence_reserve_1_c_1] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plreserve_1_c_ss[t,k,w] <= eps_nadir + sum(re_l_reserve_1_c_ss[e,t,k,w] for e in E1)
+            + sum(rs_l_reserve_1_c_ss[s,t,k,w] for s in S1) + sum(rg_l_reserve_1_c_ss[g,t,k,w] for g in G1))
+    m.ext[:constraints][:time_nadir_occurrence_reserve_1_c_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plreserve_1_c_ss[t,k,w] >= eps_nadir + sum(re_l_reserve_1_c_ss[e,t,k,w] for e in E1)
+            + sum(rs_l_reserve_1_c_ss[s,t,k,w] for s in S1) + sum(rg_l_reserve_1_c_ss[g,t,k,w] for g in G1)*Edeployment["1"]/G_dt["1"])
+
+    # ----------------------------- AREA 2 --------------------------------
+
+    # Generator k of area 2 trips
+    m.ext[:constraints][:time_nadir_occurrence_g2_1] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plg2_ss[t,k,w] <= eps_nadir + sum(re_lg2_ss[e,t,k,w] for e in E2) + sum(rs_lg2_ss[s,t,k,w] for s in S2)
+            + sum(rhvdc_lg2_ss[cv,t,k,w] for cv in CV2) + sum(rg_lg2_ss[g,t,k,w] for g in G2))
+    m.ext[:constraints][:time_nadir_occurrence_g2_2] = @constraint(m, [t=T, k=fallos_g2, w=Wind_scenarios],
+        plg2_ss[t,k,w] >= eps_nadir + sum(re_lg2_ss[e,t,k,w] for e in E2) + sum(rs_lg2_ss[s,t,k,w] for s in S2)
+            + sum(rhvdc_lg2_ss[cv,t,k,w] for cv in CV2) + sum(rg_lg2_ss[g,t,k,w] for g in G2)*Edeployment["1"]/G_dt["1"])
+
+    # Converter k of area 2 trips
+    m.ext[:constraints][:time_nadir_occurrence_c2_1] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plc2_ss[t,k,w] <= eps_nadir + sum(re_lc2_ss[e,t,k,w] for e in E2) + sum(rs_lc2_ss[s,t,k,w] for s in S2)
+            + sum(rhvdc_lc2_ss[cv,t,k,w] for cv in CV2) + sum(rg_lc2_ss[g,t,k,w] for g in G2))
+    m.ext[:constraints][:time_nadir_occurrence_c2_2] = @constraint(m, [t=T, k=fallos_c2, w=Wind_scenarios],
+        plc2_ss[t,k,w] >= eps_nadir + sum(re_lc2_ss[e,t,k,w] for e in E2) + sum(rs_lc2_ss[s,t,k,w] for s in S2)
+            + sum(rhvdc_lc2_ss[cv,t,k,w] for cv in CV2) + sum(rg_lc2_ss[g,t,k,w] for g in G2)*Edeployment["1"]/G_dt["1"])
+
+    # Area 2 supports area 1 after generator k of area 1 trips (no HVDC reserve)
+    m.ext[:constraints][:time_nadir_occurrence_reserve_2_g_1] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plreserve_2_g_ss[t,k,w] <= eps_nadir + sum(re_l_reserve_2_g_ss[e,t,k,w] for e in E2)
+            + sum(rs_l_reserve_2_g_ss[s,t,k,w] for s in S2) + sum(rg_l_reserve_2_g_ss[g,t,k,w] for g in G2))
+    m.ext[:constraints][:time_nadir_occurrence_reserve_2_g_2] = @constraint(m, [t=T, k=fallos_g1, w=Wind_scenarios],
+        plreserve_2_g_ss[t,k,w] >= eps_nadir + sum(re_l_reserve_2_g_ss[e,t,k,w] for e in E2)
+            + sum(rs_l_reserve_2_g_ss[s,t,k,w] for s in S2) + sum(rg_l_reserve_2_g_ss[g,t,k,w] for g in G2)*Edeployment["1"]/G_dt["1"])
+
+    # Area 2 supports area 1 after converter k of area 1 trips (no HVDC reserve)
+    m.ext[:constraints][:time_nadir_occurrence_reserve_2_c_1] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plreserve_2_c_ss[t,k,w] <= eps_nadir + sum(re_l_reserve_2_c_ss[e,t,k,w] for e in E2)
+            + sum(rs_l_reserve_2_c_ss[s,t,k,w] for s in S2) + sum(rg_l_reserve_2_c_ss[g,t,k,w] for g in G2))
+    m.ext[:constraints][:time_nadir_occurrence_reserve_2_c_2] = @constraint(m, [t=T, k=fallos_c1, w=Wind_scenarios],
+        plreserve_2_c_ss[t,k,w] >= eps_nadir + sum(re_l_reserve_2_c_ss[e,t,k,w] for e in E2)
+            + sum(rs_l_reserve_2_c_ss[s,t,k,w] for s in S2) + sum(rg_l_reserve_2_c_ss[g,t,k,w] for g in G2)*Edeployment["1"]/G_dt["1"])
       
     return m 
 end

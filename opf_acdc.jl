@@ -52,6 +52,7 @@ include(joinpath(path,"printparameters_frequency_sev_var_res_provi.jl")) # Defin
 include(joinpath(path,"build_ac_opf_acdc_frequency_sev_var_res_provi.jl")) # Define build_ac_opf_acdc! function
 include(joinpath(path,"build_ac_opf_acdc_frequency_robust.jl")) # Define build_ac_opf_acdc! function
 
+
 #build_ac_opf_acdc_modify!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency!(m) # Pass the model to the build_ac_opf_acdc! function
 #build_ac_opf_acdc_frequency_silent_3!(m) # Pass the model to the build_ac_opf_acdc! function
@@ -65,8 +66,21 @@ build_ac_opf_acdc_frequency_robust!(m)
 
 # set_optimizer_attribute(m, "DualReductions", 0)
 # set_optimizer_attribute(m, "InfUnbdInfo", 1)
-set_optimizer_attribute(m, "MIPGap", 0.0001)
+#set_optimizer_attribute(m, "MIPGap", 0.0001)
 optimize!(m)
+
+
+include(joinpath(path,"plotfunction_robust.jl")) # Define build_ac_opf_acdc! function
+include(joinpath(path,"printparameters_robust.jl")) # Define build_ac_opf_acdc! function
+include(joinpath(path,"frequency_metrics_robust.jl")) # Define build_ac_opf_acdc! function
+plotfunction_robust!(m) # Plot the results
+printparameters_robust!(m) # Print the results
+
+
+
+
+# Breakdown of the objective function
+
 # ... bloque 1 ...
 
 # @show termination_status(m)
@@ -102,5 +116,7 @@ end
 # println("Optimization time: ", optimization_time, " Seconds")
 solution_summary(m)
 #println(objective_value(m)) # Print the objective value of the model
+
+
 
 

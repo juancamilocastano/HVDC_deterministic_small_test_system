@@ -257,7 +257,7 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
     colsw = names(tsw)
 
     # Relative deviation of the wind realizations with respect to the forecast (10 %)
-    δ_wind = 0.1
+    δ_wind = 0.4
 
     # Solar capacity factor: deterministic, used in both the first and the second stage
     capacity_factor_solar = Dict(col => Dict(string(i) => tss[i, col] for i in 1:nw) for col in names(tss))
@@ -267,9 +267,11 @@ function process_parameters!(m::Model, data::Dict, ts::DataFrame, tsw::DataFrame
 
     # Wind capacity factor realizations: used in the second stage (one value per scenario)
     capacity_factor_wind_w = Dict(col => Dict(string(i) => Dict(
-            "high" => min(1.0, tsw[i, col] * (1 + δ_wind)),   # high realization, capped at 1 (rated power)
-            "low"  => tsw[i, col] * (1 - δ_wind))             # low realization
+            "High_wind" => min(1.0, tsw[i, col] * (1 + δ_wind)),   # high realization, capped at 1 (rated power)
+            "Low_wind"  => tsw[i, col] * (1 - δ_wind))             # low realization
         for i in 1:nw) for col in colsw)
+
+            
 
 
 
