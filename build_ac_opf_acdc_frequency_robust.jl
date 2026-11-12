@@ -488,75 +488,7 @@ fallos_c2 = m.ext[:sets][:fallos_c2] = CV2
 
 
 
-#     # Objective: first-stage cost (day-ahead schedule, commitment and procured reserve) + worst-case second-stage cost
-#     m.ext[:objective] = @objective(m, Min,
-#         # energy and no-load cost of the day-ahead schedule
-#           sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] * zg_fs[g, t] for g in G, t in T)
-#         # start-up costs
-#         + sum(Estartupcost[e] * zesu_fs[e, t] for e in E, t in T)
-#         + sum(start_up_cost[g] * betag_fs[g, t] for g in G, t in T)
-#         # day-ahead hydrogen purchases minus sales
-#         + sum(Hydrogencost[e] * baseKG * (hfgconsum_fs[e, t] - hfginyect_fs[e, t]) for e in E, t in T)
-#         # procured FCR
-#         + sum(Ereservecost[e] * r_proc_e_1[e, t] for e in E1, t in T) * baseMVA
-#         + sum(Ereservecost[e] * r_proc_e_2[e, t] for e in E2, t in T) * baseMVA
-#         + sum(Sreservecost[s] * r_proc_s_1[s, t] for s in S1, t in T) * baseMVA
-#         + sum(Sreservecost[s] * r_proc_s_2[s, t] for s in S2, t in T) * baseMVA
-#         + sum(G_reservecost[g] * r_proc_g_1[g, t] for g in G1, t in T) * baseMVA
-#         + sum(G_reservecost[g] * r_proc_g_2[g, t] for g in G2, t in T) * baseMVA
-#         # day-ahead load shedding
-#         + sum((load_shed_1_fs[t] + load_shed_2_fs[t]) * VOLL for t in T) * baseMVA
-#         # worst-case second-stage cost
-#         + sigma)
-
-#   # Second-stage cost of each wind scenario w: only deviations from the day-ahead schedule are paid
-#     m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
-#         # generator redispatch
-#           sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
-#              - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
-#         # hydrogen market deviations
-#         + sum( Hydrogencost[e] * baseKG * (
-#                  α_H * hfgconsum_ss_up[e, t, w]
-#                - β_H * hfgconsum_ss_dn[e, t, w]
-#                - β_H * hfginyect_ss_up[e, t, w]
-#                + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
-#         # real-time load shedding
-#         + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
-#         # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
-#         + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
-#         # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
-#         + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T)
-#         <= sigma
-#     )
-
-
-
-
-    ρ = 1e-5    # weight of the expected second-stage cost: tie-breaker so that non-worst scenarios are also optimized
-
-    # Second-stage cost of each wind scenario w (only deviations from the day-ahead schedule are paid).
-    # Defined as an expression because it is used both in the sigma constraint and in the objective.
-    cost_ss_expr = m.ext[:expressions][:cost_ss_expr] = @expression(m, [w = Wind_scenarios],
-        # generator redispatch
-          sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
-             - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
-        # hydrogen market deviations
-        + sum( Hydrogencost[e] * baseKG * (
-                 α_H * hfgconsum_ss_up[e, t, w]
-               - β_H * hfgconsum_ss_dn[e, t, w]
-               - β_H * hfginyect_ss_up[e, t, w]
-               + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
-        # real-time load shedding
-        + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
-        # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
-        + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
-        # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
-        + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T))
-
-    # sigma = worst-case second-stage cost
-    m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
-        cost_ss_expr[w] <= sigma)
-
+    # Objective: first-stage cost (day-ahead schedule, commitment and procured reserve) + worst-case second-stage cost
     m.ext[:objective] = @objective(m, Min,
         # energy and no-load cost of the day-ahead schedule
           sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] * zg_fs[g, t] for g in G, t in T)
@@ -575,9 +507,77 @@ fallos_c2 = m.ext[:sets][:fallos_c2] = CV2
         # day-ahead load shedding
         + sum((load_shed_1_fs[t] + load_shed_2_fs[t]) * VOLL for t in T) * baseMVA
         # worst-case second-stage cost
-        + sigma
-        # small weight on the second-stage cost of every scenario (tie-breaker for the non-worst scenarios)
-        + ρ * sum(cost_ss_expr[w] for w in Wind_scenarios))
+        + sigma)
+
+  # Second-stage cost of each wind scenario w: only deviations from the day-ahead schedule are paid
+    m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
+        # generator redispatch
+          sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
+             - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
+        # hydrogen market deviations
+        + sum( Hydrogencost[e] * baseKG * (
+                 α_H * hfgconsum_ss_up[e, t, w]
+               - β_H * hfgconsum_ss_dn[e, t, w]
+               - β_H * hfginyect_ss_up[e, t, w]
+               + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
+        # real-time load shedding
+        + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
+        # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
+        + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
+        # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
+        + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T)
+        <= sigma
+    )
+
+
+
+
+    # ρ = 1e-5    # weight of the expected second-stage cost: tie-breaker so that non-worst scenarios are also optimized
+
+    # # Second-stage cost of each wind scenario w (only deviations from the day-ahead schedule are paid).
+    # # Defined as an expression because it is used both in the sigma constraint and in the objective.
+    # cost_ss_expr = m.ext[:expressions][:cost_ss_expr] = @expression(m, [w = Wind_scenarios],
+    #     # generator redispatch
+    #       sum( α * gen_cost[g][1] * pg_ss_up[g, t, w]
+    #          - β * gen_cost[g][1] * pg_ss_dn[g, t, w] for g in G, t in T)
+    #     # hydrogen market deviations
+    #     + sum( Hydrogencost[e] * baseKG * (
+    #              α_H * hfgconsum_ss_up[e, t, w]
+    #            - β_H * hfgconsum_ss_dn[e, t, w]
+    #            - β_H * hfginyect_ss_up[e, t, w]
+    #            + α_H * hfginyect_ss_dn[e, t, w] ) for e in E, t in T)
+    #     # real-time load shedding
+    #     + sum( VOLL * (load_shed_1_ss[t, w] + load_shed_2_ss[t, w]) for t in T) * baseMVA
+    #     # tie-breaking penalty: deviations of wind and solar from their day-ahead schedule
+    #     + sum( 1 * (pg_ss_up[g, t, w] + pg_ss_dn[g, t, w]) for g in G_renewable, t in T)
+    #     # tie-breaking penalty: deviations of the HVDC flow from its day-ahead schedule
+    #     + sum( 1 * (conv_p_ac_ss_up[cv, t, w] + conv_p_ac_ss_dn[cv, t, w]) for cv in CV, t in T))
+
+    # # sigma = worst-case second-stage cost
+    # m.ext[:constraints][:cost_ss] = @constraint(m, [w = Wind_scenarios],
+    #     cost_ss_expr[w] <= sigma)
+
+    # m.ext[:objective] = @objective(m, Min,
+    #     # energy and no-load cost of the day-ahead schedule
+    #       sum(gen_cost[g][1] * pg_fs[g, t] + gen_cost[g][2] * zg_fs[g, t] for g in G, t in T)
+    #     # start-up costs
+    #     + sum(Estartupcost[e] * zesu_fs[e, t] for e in E, t in T)
+    #     + sum(start_up_cost[g] * betag_fs[g, t] for g in G, t in T)
+    #     # day-ahead hydrogen purchases minus sales
+    #     + sum(Hydrogencost[e] * baseKG * (hfgconsum_fs[e, t] - hfginyect_fs[e, t]) for e in E, t in T)
+    #     # procured FCR
+    #     + sum(Ereservecost[e] * r_proc_e_1[e, t] for e in E1, t in T) * baseMVA
+    #     + sum(Ereservecost[e] * r_proc_e_2[e, t] for e in E2, t in T) * baseMVA
+    #     + sum(Sreservecost[s] * r_proc_s_1[s, t] for s in S1, t in T) * baseMVA
+    #     + sum(Sreservecost[s] * r_proc_s_2[s, t] for s in S2, t in T) * baseMVA
+    #     + sum(G_reservecost[g] * r_proc_g_1[g, t] for g in G1, t in T) * baseMVA
+    #     + sum(G_reservecost[g] * r_proc_g_2[g, t] for g in G2, t in T) * baseMVA
+    #     # day-ahead load shedding
+    #     + sum((load_shed_1_fs[t] + load_shed_2_fs[t]) * VOLL for t in T) * baseMVA
+    #     # worst-case second-stage cost
+    #     + sigma
+    #     # small weight on the second-stage cost of every scenario (tie-breaker for the non-worst scenarios)
+    #     + ρ * sum(cost_ss_expr[w] for w in Wind_scenarios))
 
     
     keys_contingency = collect(keys(all_contingencies))
